@@ -11,6 +11,7 @@ class BaseIR
 public:
     virtual ~BaseIR() = default;
     virtual std::string toString() const = 0;
+    virtual std::string toAssembly() const = 0;
     friend std::ostream& operator<<(std::ostream& os, const BaseIR& ir)
     {
         os << ir.toString();
@@ -76,6 +77,19 @@ public:
         }
         return str;
     }
+    std::string toAssembly() const override
+    {
+        std::string str;
+        switch (type) {
+            case Return:
+                str = "  li a0, " + params[0]->toAssembly() + "\n";
+                str += "  ret";
+                break;
+            case Integer: str = content; break;
+            default: break;
+        }
+        return str;
+    }
 };
 
 class BasicBlockIR : public BaseIR
@@ -90,6 +104,14 @@ public:
         std::string str = "%" + entrance + ":\n";
         for (const auto& inst : insts) {
             str += "  " + inst->toString() + "\n";
+        }
+        return str;
+    }
+    std::string toAssembly() const override
+    {
+        std::string str;
+        for (const auto& inst : insts) {
+            str += inst->toAssembly();
         }
         return str;
     }
@@ -111,6 +133,14 @@ public:
         str += "}\n";
         return str;
     }
+    std::string toAssembly() const override
+    {
+        std::string str = name + ":\n";
+        for (const auto& block : blocks) {
+            str += block->toAssembly();
+        }
+        return str;
+    }
 };
 
 class ProgramIR : public BaseIR
@@ -126,6 +156,21 @@ public:
         // }
         for (const auto& func : funcs) {
             str += func->toString();
+        }
+        return str;
+    }
+    std::string toAssembly() const override
+    {
+        std::string str;
+        str += "  .text\n";
+        for (const auto& obj : funcs) {
+            auto func = dynamic_cast<FunctionIR*>(obj.get());
+            if (func) {
+                str += "  .globl " + func->name + "\n";
+            }
+        }
+        for (const auto& func : funcs) {
+            str += func->toAssembly();
         }
         return str;
     }
