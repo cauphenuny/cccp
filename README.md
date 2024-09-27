@@ -1,4 +1,4 @@
 # ccc
-cauphenuny's c compiler
+cauphenuny's ~~c~~ SysY compiler
 
-from SysY to RISC-V
+from SysY to RISC-V ASM

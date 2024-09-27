@@ -2,8 +2,8 @@
 #define IR_HPP
 
 #include <iostream>
+#include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 class BaseIR
@@ -18,7 +18,10 @@ public:
     }
 };
 
+using IrObject = std::unique_ptr<BaseIR>;
+
 enum ValueType {
+    Unknown,
     Integer,
     ZeroInit,
     FuncArgRef,
@@ -39,18 +42,37 @@ class ValueIR : public BaseIR
 {
 public:
     ValueType type;
-    std::string name;
-    std::vector<ValueIR> params;
+    std::string content;
+    std::vector<IrObject> params;
+    const char* typeName() const
+    {
+        switch (type) {
+            case Integer: return "i32";
+            case ZeroInit: return "zero_init";
+            case FuncArgRef: return "func_arg_ref";
+            case GlobalAlloc: return "global_alloc";
+            case Alloc: return "alloc";
+            case Load: return "load";
+            case Store: return "store";
+            case GetPtr: return "get_ptr";
+            case GetElemPtr: return "get_elem_ptr";
+            case Binary: return "binary";
+            case Branch: return "branch";
+            case Jump: return "jump";
+            case Call: return "call";
+            case Return: return "ret";
+            default: return "unknown";
+        }
+    }
     std::string toString() const override
     {
         std::string str;
         switch (type) {
-            case Integer: str = name; break;
-            case Return: str = "ret"; break;
-            default: break;
+            case Integer: str = content; break;
+            default: str = typeName(); break;
         }
         for (const auto& p : params) {
-            str += " " + p.toString();
+            str += " " + p->toString();
         }
         return str;
     }
@@ -60,13 +82,14 @@ class BasicBlockIR : public BaseIR
 {
 public:
     std::string entrance;
-    std::vector<ValueIR> insts;  // instruments
+    std::vector<IrObject> insts;  // instruments
     // std::string exit;
+
     std::string toString() const override
     {
         std::string str = "%" + entrance + ":\n";
         for (const auto& inst : insts) {
-            str += "  " + inst.toString() + "\n";
+            str += "  " + inst->toString() + "\n";
         }
         return str;
     }
@@ -76,13 +99,14 @@ class FunctionIR : public BaseIR
 {
 public:
     std::string name;
-    ValueIR ret_type;
-    std::vector<BasicBlockIR> blocks;
+    IrObject ret_type;
+    std::vector<IrObject> blocks;
     std::string toString() const override
     {
-        std::string str = "fun @" + name + "(): i32 {\n";
+        std::string str =
+            "fun @" + name + "(): " + ret_type->toString() + " {\n";
         for (const auto& block : blocks) {
-            str += block.toString();
+            str += block->toString();
         }
         str += "}\n";
         return str;
@@ -92,16 +116,16 @@ public:
 class ProgramIR : public BaseIR
 {
 public:
-    std::vector<ValueIR> global_vars;  // global variables
-    std::vector<FunctionIR> funcs;
+    std::vector<IrObject> global_vars;  // global variables
+    std::vector<IrObject> funcs;
     std::string toString() const override
     {
         std::string str;
-        for (const auto& var : global_vars) {
-            // TODO:
-        }
+        // for (const auto& var : global_vars) {
+        //     // TODO:
+        // }
         for (const auto& func : funcs) {
-            str += func.toString();
+            str += func->toString();
         }
         return str;
     }

@@ -25,4 +25,5 @@ UseTab: Never
 SortIncludes: true
 PointerAlignment: Left
 IndentCaseLabels: true
+ColumnLimit: 80
 ...

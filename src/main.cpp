@@ -35,8 +35,8 @@ int main(int argc, const char* argv[])
     auto ret = yyparse(ast);
     assert(!ret);
 
-    // 输出解析得到的 AST, 其实就是个字符串
     std::fstream fs(output, std::ios::out);
-    fs << ast->toIrString() << endl;
+    auto ir = ast->toIr();
+    fs << ir->toString() << endl;
     return 0;
 }

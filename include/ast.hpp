@@ -29,7 +29,7 @@ class BaseAST
 public:
     virtual ~BaseAST() = default;
     virtual std::string toString() const = 0;
-    virtual std::string toIrString() const = 0;
+    virtual IrObject toIr() const = 0;
     friend std::ostream& operator<<(std::ostream& os, const BaseAST& ast)
     {
         os << ast.toString();
@@ -37,25 +37,32 @@ public:
     }
 };
 
+using AstObject = std::unique_ptr<BaseAST>;
+
 class CompUnitAST : public BaseAST
 {
 public:
-    std::unique_ptr<BaseAST> func_def;
+    AstObject func_def;
     CompUnitAST() = default;
     std::string toString() const override
     {
         return "CompUnitAST {\n" +
                addIndent("func_def: " + func_def->toString() + "\n") + "}";
     }
-    std::string toIrString() const override { return func_def->toIrString(); }
+    IrObject toIr() const override
+    {
+        ProgramIR* ir = new ProgramIR();
+        ir->funcs.push_back(func_def->toIr());
+        return IrObject(ir);
+    }
 };
 
 class FuncDefAST : public BaseAST
 {
 public:
-    std::unique_ptr<BaseAST> func_type;
+    AstObject func_type;
     std::string ident;
-    std::unique_ptr<BaseAST> block;
+    AstObject block;
     FuncDefAST() = default;
     std::string toString() const override
     {
@@ -64,13 +71,13 @@ public:
                addIndent("ident: \"" + ident + "\",\n") +
                addIndent("block: " + block->toString() + "\n") + "}";
     }
-    std::string toIrString() const override
+    IrObject toIr() const override
     {
-        std::string str =
-            "fun @" + ident + "(): " + func_type->toIrString() + " {\n";
-        str += block->toIrString();
-        str += "}\n";
-        return str;
+        FunctionIR* ir = new FunctionIR();
+        ir->name = ident;
+        ir->ret_type = func_type->toIr();
+        ir->blocks.push_back(block->toIr());
+        return IrObject(ir);
     }
 };
 
@@ -83,39 +90,72 @@ public:
     {
         return "FuncTypeAST {\n" + addIndent("type: " + type + "\n") + "}";
     }
-    std::string toIrString() const override { return "i32"; }
+    IrObject toIr() const override
+    {
+        ValueIR* ir = new ValueIR();
+        if (type == "int") {
+            ir->type = ValueType::Integer;
+        } else {
+            ir->type = ValueType::Unknown;
+        }
+        ir->content = type;
+        return IrObject(ir);
+    }
 };
 
 class BlockAST : public BaseAST
 {
 public:
-    std::unique_ptr<BaseAST> stmt;
+    AstObject stmt;
     BlockAST() = default;
     std::string toString() const override
     {
         return "BlockAST {\n" + addIndent("stmt: " + stmt->toString() + "\n") +
                "}";
     }
-    std::string toIrString() const override
+    IrObject toIr() const override
     {
-        std::string str = "\%entry:\n" + stmt->toIrString();
-        return str;
+        BasicBlockIR* ir = new BasicBlockIR();
+        ir->entrance = "entry";
+        ir->insts.push_back(stmt->toIr());
+        return IrObject(ir);
+    }
+};
+
+class NumberAST : public BaseAST
+{
+public:
+    int number;
+    std::string toString() const override
+    {
+        return "NumberAST {\n" +
+               addIndent("number: " + std::to_string(number) + "\n") + "}";
+    }
+    IrObject toIr() const override
+    {
+        ValueIR* ir = new ValueIR();
+        ir->type = ValueType::Integer;
+        ir->content = std::to_string(number);
+        return IrObject(ir);
     }
 };
 
 class StmtAST : public BaseAST
 {
 public:
-    int number;
+    AstObject number;
     StmtAST() = default;
     std::string toString() const override
     {
         return "StmtAST {\n" +
-               addIndent("number: " + std::to_string(number) + "\n") + "}";
+               addIndent("number: " + number->toString() + "\n") + "}";
     }
-    std::string toIrString() const override
+    IrObject toIr() const override
     {
-        return "  ret " + std::to_string(number) + "\n";
+        ValueIR* ir = new ValueIR();
+        ir->type = ValueType::Return;
+        ir->params.push_back(number->toIr());
+        return IrObject(ir);
     }
 };
 
