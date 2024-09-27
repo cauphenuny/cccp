@@ -1,0 +1,28 @@
+---
+BasedOnStyle: LLVM
+AccessModifierOffset: '-4'
+AlignOperands: true
+AlignAfterOpenBracket: Align
+AlignTrailingComments: true
+AlignConsecutiveMacros: 'true'
+AlignEscapedNewlines: 'Left'
+AllowAllParametersOfDeclarationOnNextLine: true
+#AlignConsecutiveAssignments: 'true'
+#AlignConsecutiveDeclarations: 'true'
+SpacesBeforeTrailingComments: 2
+AllowShortFunctionsOnASingleLine: InlineOnly
+AlwaysBreakTemplateDeclarations: MultiLine
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: true
+BreakBeforeBinaryOperators: false
+BreakBeforeBraces: Linux
+IndentWidth: 4
+TabWidth: 4
+IncludeBlocks: Regroup
+IndentPPDirectives: AfterHash
+UseTab: Never
+SortIncludes: true
+PointerAlignment: Left
+IndentCaseLabels: true
+...
