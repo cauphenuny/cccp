@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <string>
+#include <ast.hpp>
 
 // 因为 Flex 会用到 Bison 中关于 token 的定义
 // 所以需要 include Bison 生成的头文件
@@ -36,6 +37,17 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 
 "int"           { return INT; }
 "return"        { return RETURN; }
+
+"<"             { yylval.op_val = Operator::lt; return REL_OP; }
+">"             { yylval.op_val = Operator::gt; return REL_OP; }
+"<="            { yylval.op_val = Operator::leq; return REL_OP; }
+">="            { yylval.op_val = Operator::geq; return REL_OP; }
+
+"=="            { yylval.op_val = Operator::eq; return EQ_OP; }
+"!="            { yylval.op_val = Operator::neq; return EQ_OP; }
+
+"&&"            { return LAND; }
+"||"            { return LOR; }
 
 {Identifier}    { yylval.str_val = new string(yytext); return IDENT; }
 
