@@ -147,27 +147,19 @@ PrimaryExp
 
 Number
   : INT_CONST {
-    auto ast = new NumberAST();
-    ast->number = $1;
-    $$ = ast;
+    $$ = new NumberAST($1);
   }
   ;
 
 UnaryExp
   : PrimaryExp {
-    auto ast = new UnaryExpAST();
-    ast->type = UnaryExpAST::Virtual;
-    ast->content = unique_ptr<BaseAST>($1);
-    $$ = ast;
+    $$ = new UnaryExpAST(AstObject($1));
   }
   | UnaryOp UnaryExp {
-    auto ast = new UnaryExpAST();
-    ast->type = UnaryExpAST::Real;
-    ast->content = (UnaryExpAST::Container) {
+    $$ = new UnaryExpAST((UnaryExpAST::Container) {
       .unary_op  = $1, 
       .unary_exp = unique_ptr<BaseAST>($2)
-    };
-    $$ = ast;
+    });
   }
   ;
 
@@ -190,83 +182,58 @@ AddOp
 
 MulExp
   : UnaryExp {
-    auto ast = new BinaryExpAST();
-    ast->type = BinaryExpAST::Virtual;
-    ast->content = AstObject($1);
-    $$ = ast;
+    $$ = new BinaryExpAST(AstObject($1));
   }
   | MulExp MulOp UnaryExp {
-    auto ast = new BinaryExpAST();
-    ast->type = BinaryExpAST::Real;
-    ast->content = (BinaryExpAST::Container) {
+    $$ = new BinaryExpAST((BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2,
       .right = AstObject($3)
-    };
-    $$ = ast;
+    });
   }
 
 AddExp
   : MulExp {
-    auto ast = new BinaryExpAST();
-    ast->type = BinaryExpAST::Virtual;
-    ast->content = unique_ptr<BaseAST>($1);
-    $$ = ast;
+    $$ = new BinaryExpAST(AstObject($1));
   }
   | AddExp AddOp MulExp {
-    auto ast = new BinaryExpAST();
-    ast->type = BinaryExpAST::Real;
-    ast->content = (BinaryExpAST::Container) {
+    $$ = new BinaryExpAST((BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2,
       .right = AstObject($3)
-    };
-    $$ = ast;
+    });
   }
   ;
 
 RelExp
   : AddExp {
-    auto ast = new BinaryExpAST();
-    ast->type = BinaryExpAST::Virtual;
-    ast->content = unique_ptr<BaseAST>($1);
-    $$ = ast;
+    $$ = new BinaryExpAST(AstObject($1));
   }
   | RelExp REL_OP AddExp {
-    auto ast = new BinaryExpAST();
-    ast->type = BinaryExpAST::Real;
-    ast->content = (BinaryExpAST::Container) {
+    $$ = new BinaryExpAST((BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2,
       .right = AstObject($3)
-    };
-    $$ = ast;
+    });
   }
   ;
 
 EqExp
   : RelExp {
-    auto ast = new BinaryExpAST();
-    ast->type = BinaryExpAST::Virtual;
-    ast->content = unique_ptr<BaseAST>($1);
-    $$ = ast;
+    $$ = new BinaryExpAST(AstObject($1));
   }
   | EqExp EQ_OP RelExp {
-    auto ast = new BinaryExpAST();
-    ast->type = BinaryExpAST::Real;
-    ast->content = (BinaryExpAST::Container) {
+    $$ = new BinaryExpAST((BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2,
       .right = AstObject($3)
-    };
-    $$ = ast;
+    });
   }
   ;
 
 LAndExp
   : EqExp {
-    auto ast = new BinaryExpAST(AstObject($1));
-    $$ = ast;
+    $$ = new BinaryExpAST(AstObject($1));
   }
   | LAndExp LAND EqExp {
     auto ast_left = new BinaryExpAST((BinaryExpAST::Container) {
@@ -279,19 +246,17 @@ LAndExp
       .op = Operator::neq,
       .right = AstObject(new NumberAST(0))
     });
-    auto ast = new BinaryExpAST((BinaryExpAST::Container) {
+    $$ = new BinaryExpAST((BinaryExpAST::Container) {
       .left = AstObject(ast_left),
       .op = Operator::band,
       .right = AstObject(ast_right)
     });
-    $$ = ast;
   }
   ;
 
 LOrExp
   : LAndExp {
-    auto ast = new BinaryExpAST(AstObject($1));
-    $$ = ast;
+    $$ = new BinaryExpAST(AstObject($1));
   }
   | LOrExp LOR LAndExp {
     auto ast_left = new BinaryExpAST((BinaryExpAST::Container) {
@@ -304,12 +269,11 @@ LOrExp
       .op = Operator::neq,
       .right = AstObject(new NumberAST(0))
     });
-    auto ast = new BinaryExpAST((BinaryExpAST::Container) {
+    $$ = new BinaryExpAST((BinaryExpAST::Container) {
       .left = AstObject(ast_left),
       .op = Operator::bor,
       .right = AstObject(ast_right)
     });
-    $$ = ast;
   }
   ;
 

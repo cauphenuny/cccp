@@ -240,6 +240,12 @@ public:
         AstObject unary_exp;
     };
     std::variant<AstObject, Container> content;
+    UnaryExpAST() = default;
+    UnaryExpAST(AstObject&& obj) : type(Virtual), content(std::move(obj)) {}
+    UnaryExpAST(Container&& content) : type(Real), content(std::move(content))
+    {
+    }
+
     std::string toString() const override
     {
         switch (type) {
