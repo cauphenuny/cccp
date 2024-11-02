@@ -231,6 +231,7 @@ public:
         return str;
     }
     std::string toAssembly(void*) const override;
+    std::string toBrainfuck(void*) const override;
 };
 
 class BasicBlockIR : public BaseIR {

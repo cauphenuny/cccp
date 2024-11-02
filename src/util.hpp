@@ -3,7 +3,7 @@
 #include <string>
 #include <cstdio>
 
-#define eprintf(fmt, ...) fprintf(stderr, "%s:%d:%s: " fmt "\n", __FILE__, __LINE__, __func__, ## __VA_ARGS__)
+#define eprintf(fmt, ...) fprintf(stderr, "%s:%d:%s: " fmt "\n", __FILE__, __LINE__, __func__, ## __VA_ARGS__), exit(1)
 
 inline std::string addIndent(const std::string& str, int indent = 1)
 {

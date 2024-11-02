@@ -1,4 +1,5 @@
 #include "ast.hpp"
+#include "bf.hpp"
 
 #include <cassert>
 #include <cstdio>
@@ -22,8 +23,8 @@ void cat(const char* file) {
 }
 
 int usage(std::string name) {
-    cerr << "usage: " + name + " [-options, ...] input [-o output]" << endl;
-    cerr << "options: -ast | -koopa | -riscv | -brfk" << endl;
+    cerr << "usage: " + name + " -option1 [-option2, ...] input [-o output]" << endl;
+    cerr << "options: -ast | -koopa | -riscv | -brain" << endl;
     return 1;
 }
 
@@ -81,8 +82,12 @@ int main(int argc, const char* argv[]) {
     if (options["riscv"]) {
         fprintf(file, "%s\n", ir->toAssembly().c_str());
     }
-    if (options["brfk"]) {
-        fprintf(file, "%s\n", ir->toBrainfuck().c_str());
+    if (options["brain"]) {
+        if (options["z"]) {
+            fprintf(file, "%s\n", bfCompress(ir->toBrainfuck()).c_str());
+        } else {
+            fprintf(file, "%s\n", ir->toBrainfuck().c_str());
+        }
     }
     return 0;
 }
