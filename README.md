@@ -1,5 +1,5 @@
 # cccp
-Cauphenuny's C ComPiler
+**C**auphenuny's **C** **C**om**P**iler
 
 from SysY to RISC-V ASM or brainf**k
 
