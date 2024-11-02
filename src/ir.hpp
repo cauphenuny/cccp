@@ -107,7 +107,7 @@ constexpr const char* toIrOperatorName(Operator op) {
 }
 
 constexpr Operator toOperator(const std::string& str) {
-    for (const auto& pair : raw_map) {
+    for (const auto& pair : name_map) {
         if (pair.second == str) {
             return pair.first;
         }

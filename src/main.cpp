@@ -65,6 +65,9 @@ int main(int argc, const char* argv[])
     } else if (mode == "-riscv") {
         out << ir->toAssembly() << endl;
     } else if (mode == "-brfk") {
+        debug << ast->toString() << endl;
+        debug << ir->toString() << endl;
+        debug << ir->toBrainfuck() << endl;
         out << ir->toBrainfuck() << endl;
     } else if (mode == "-debug1") {
         debug << ast->toString() << endl;
@@ -75,7 +78,10 @@ int main(int argc, const char* argv[])
         debug << ast->toString() << endl;
         debug << ir->toString() << endl;
         debug << ir->toAssembly() << endl;
-        // debug << ir->toBrainfuck() << endl;
+    } else if (mode == "-debugx") {
+        debug << ast->toString() << endl;
+        debug << ir->toString() << endl;
+        debug << ir->toBrainfuck() << endl;
     } else {
         cerr << "usage: " + string(argv[0]) + " [-riscv|-koopa|-brfk] input -o output"
              << endl;

@@ -18,6 +18,7 @@ inline std::string addIndent(const std::string& str, int indent = 1)
             indent_flag = 1;
         }
     }
+    if (result_str.back() != '\n') result_str += '\n';
     return result_str;
 }
 
