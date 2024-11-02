@@ -227,7 +227,7 @@ inline std::string compress(std::string s) {
 }
 
 inline std::string FunctionIR::toBrainfuck(void*) const {
-    std::string blocks_str = name + "():\n";
+    std::string blocks_str = name + "()\n";
     for (const auto& block : blocks) {
         blocks_str += block->toBrainfuck();
     }
