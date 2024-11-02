@@ -4,29 +4,134 @@
 #include "util.hpp"
 
 #include <cassert>
+#include <functional>
 #include <iostream>
+#include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
-class BaseIR
-{
+enum class Operator : unsigned {
+    no,    //!
+    add,   // +
+    sub,   // -
+    mul,   // *
+    div,   // /
+    mod,   // %
+    eq,    // ==
+    neq,   // !=
+    leq,   // <=
+    geq,   // >=
+    lt,    // <
+    gt,    // >
+    band,  // &
+    bor,   // |
+    land,  // &&
+    lor,   // ||
+};
+
+template <typename T>
+std::array<std::function<T(T, T)>, 16> function_map = {
+    std::not_equal_to<T>(),   // no,    // !    // note:
+    std::plus<T>(),           // add,   // +    // for unary expression, the first parameter should be 0
+    std::minus<T>(),          // sub,   // -    // the second parameter is the given parameter
+    std::multiplies<T>(),     // mul,   // *
+    std::divides<T>(),        // div,   // /
+    std::modulus<T>(),        // mod,   // %
+    std::equal_to<T>(),       // eq,    // ==
+    std::not_equal_to<T>(),   // neq,   // !=
+    std::less_equal<T>(),     // leq,   // <=
+    std::greater_equal<T>(),  // geq,   // >=
+    std::less<T>(),           // lt,    // <
+    std::greater<T>(),        // gt,    // >
+    std::bit_and<T>(),        // band,  // &
+    std::bit_or<T>(),         // bor,   // |
+    std::logical_and<T>(),    // land,  // &&
+    std::logical_or<T>()      // lor,   // ||
+};
+
+template <typename T> const std::function<T(T, T)> getFunction(Operator op) {
+    return function_map<T>[(size_t)op];
+}
+
+constexpr std::array<std::pair<Operator, const char*>, 16> raw_map = {  //
+    {{Operator::no, "!"},
+     {Operator::add, "+"},
+     {Operator::sub, "-"},
+     {Operator::mul, "*"},
+     {Operator::div, "/"},
+     {Operator::mod, "%"},
+     {Operator::eq, "=="},
+     {Operator::neq, "!="},
+     {Operator::leq, "<="},
+     {Operator::geq, ">="},
+     {Operator::lt, "<"},
+     {Operator::gt, ">"},
+     {Operator::band, "&"},
+     {Operator::bor, "|"},
+     {Operator::land, "&&"},
+     {Operator::lor, "||"}}};
+
+constexpr std::array<std::pair<Operator, const char*>, 13> name_map = {  //
+    {{Operator::neq, "ne"},
+     {Operator::eq, "eq"},
+     {Operator::gt, "gt"},
+     {Operator::lt, "lt"},
+     {Operator::leq, "le"},
+     {Operator::geq, "ge"},
+     {Operator::add, "add"},
+     {Operator::sub, "sub"},
+     {Operator::mul, "mul"},
+     {Operator::div, "div"},
+     {Operator::mod, "mod"},
+     {Operator::band, "and"},
+     {Operator::bor, "or"}}};
+
+constexpr const char* toRawOperator(Operator op) {
+    for (const auto& pair : raw_map) {
+        if (pair.first == op) {
+            return pair.second;
+        }
+    }
+    return "unknown";
+}
+
+constexpr const char* toIrOperatorName(Operator op) {
+    for (const auto& pair : name_map) {
+        if (pair.first == op) {
+            return pair.second;
+        }
+    }
+    return "unknown";
+}
+
+constexpr Operator toOperator(const std::string& str) {
+    for (const auto& pair : raw_map) {
+        if (pair.second == str) {
+            return pair.first;
+        }
+    }
+    throw std::runtime_error("unknown operator: " + str);
+}
+
+class BaseIR {
 public:
     virtual ~BaseIR() = default;
     virtual std::string toString(void* context = nullptr) const = 0;
     virtual std::string toAssembly(void* context = nullptr) const = 0;
-    friend std::ostream& operator<<(std::ostream& os, const BaseIR& ir)
-    {
+    virtual std::string toBrainfuck(void* context = nullptr) const { return ""; }
+    friend std::ostream& operator<<(std::ostream& os, const BaseIR& ir) {
         os << ir.toString();
         return os;
     }
+    virtual operator bool() const { return false; }  // default state
 };
 
 using IrObject = std::unique_ptr<BaseIR>;
 
 enum ValueType {
     Unknown,
-    Integer,
     ZeroInit,
     FuncArgRef,
     GlobalAlloc,
@@ -40,21 +145,28 @@ enum ValueType {
     Jump,
     Call,
     Return,
+    // non-instrument values
+    Type,
+    Integer,
+    Variable,
 };
 
 struct Context {
-    std::string val_pos;
+    std::string ret;
     int reg_cnt;
 };
 
-class ValueIR : public BaseIR
-{
+class ValueIR : public BaseIR {
 public:
     ValueType type;
     std::string content;
     std::vector<IrObject> params;
-    std::string toString(void* context) const override
-    {
+    ValueIR() = default;
+    ValueIR(ValueType type) : type(type) {}
+    ValueIR(ValueType type, std::string str) : type(type), content(str) {}
+    operator bool() const override { return true; }
+
+    std::string toString(void* context) const override {
         assert(context != nullptr);
         /*
         std::string str = content;
@@ -64,119 +176,72 @@ public:
         if (params.size()) str += "\n";
         return str;
         */
-        assert(context != nullptr);
-        // std::cerr << "entered toString" << std::endl;
         auto ctx = (Context*)context;
-        std::string str, op1, op2;
+        std::string str;
         // std::cerr << "toString(), type = " << type << std::endl;
         switch (type) {
-            case Integer:
-                // std::cerr << "fuck..." << std::endl;
-                ctx->val_pos = content;
-                // std::cerr << "fuck!" << std::endl;
+            case Type:
+            case Integer: ctx->ret = content; break;
+            case Variable:
+                ctx->ret = "%" + std::to_string(ctx->reg_cnt++);
+                str = ctx->ret + " = load @" + content + "\n";
                 break;
-            case Binary:
+            case Alloc:
+                params[0]->toString(context);
+                str = "@" + content + " = alloc " + ctx->ret + "\n";
+                break;
+            case Store:
+                str = params[0]->toString(context);
+                str += "store " + ctx->ret + ", @" + content + "\n";
+                break;
+            case Binary: {
+                std::string op1, op2;
                 str += params[0]->toString(context);
-                op1 = ctx->val_pos;
+                op1 = ctx->ret;
                 str += params[1]->toString(context);
-                op2 = ctx->val_pos;
-                ctx->val_pos = "%" + std::to_string(ctx->reg_cnt++);
-                str += ctx->val_pos + " = " + content + " " + op1 + ", " + op2 +
-                       "\n";
+                op2 = ctx->ret;
+                ctx->ret = "%" + std::to_string(ctx->reg_cnt++);
+                str += ctx->ret + " = " + content + " " + op1 + ", " + op2 + "\n";
                 break;
+            }
             case Return:
                 str += params[0]->toString(context);
-                op1 = ctx->val_pos;
-                str += "ret " + op1 + "\n";
-                break;
-            default: std::cerr << "not implemented value type!" << std::endl;
-        }
-        return str;
-    }
-
-private:
-    std::string _toRegister(int count) const
-    {
-        if (count < 7)
-            return "t" + std::to_string(count);
-        else
-            return "a" + std::to_string(count - 7 + 2);
-    }
-
-public:
-    std::string toAssembly(void* context) const override
-    {
-        assert(context != nullptr);
-        auto ctx = (Context*)context;
-        std::string str, op1, op2, pos;
-        switch (type) {
-            case Return:
-                str += params[0]->toAssembly(context);
-                str += "mv\ta0, " + ctx->val_pos + "\n";
-                str += "ret\t\n";
-                break;
-            case Binary:
-                str += params[0]->toAssembly(context), op1 = ctx->val_pos;
-                str += params[1]->toAssembly(context), op2 = ctx->val_pos;
-                if (ctx->val_pos != "x0") {
-                    pos = ctx->val_pos;
-                } else {
-                    pos = ctx->val_pos = _toRegister(ctx->reg_cnt++);
-                }
-                if (content == "gt") {
-                    str += "sgt\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                } else if (content == "lt") {
-                    str += "slt\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                } else if (content == "ge") {
-                    str += "slt\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                    str += "seqz\t" + pos + ", " + pos + "\n";
-                } else if (content == "le") {
-                    str += "sgt\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                    str += "seqz\t" + pos + ", " + pos + "\n";
-                } else if (content == "ne") {
-                    str += "xor\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                    str += "seqz\t" + pos + ", " + pos + "\n";
-                    str += "seqz\t" + pos + ", " + pos + "\n";
-                } else if (content == "eq") {
-                    str += "xor\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                    str += "seqz\t" + pos + ", " + pos + "\n";
-                } else if (content == "mod") {
-                    str += "rem\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                } else if (content == "sub" || content == "add" ||
-                           content == "mul" || content == "div" ||
-                           content == "and" || content == "or") {
-                    str +=
-                        content + "\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                } else {
-                    std::cerr << "not implemented binary operator!"
-                              << std::endl;
-                }
-                break;
-            case Integer:
-                if (content == "0") {
-                    ctx->val_pos = "x0";
-                } else {
-                    ctx->val_pos = _toRegister(ctx->reg_cnt++);
-                    str += "li\t" + ctx->val_pos + ", " + content + "\n";
-                }
+                str += "ret " + ctx->ret + "\n";
                 break;
             default:
-                std::cerr << "not implemented value type!" << std::endl;
-                break;
+                std::cerr << "not implemented value type " + std::to_string(type) + " !"
+                          << std::endl;
         }
         return str;
     }
+    std::string toAssembly(void*) const override;
+    std::string toBrainfuck(void*) const override;
+
+private:
 };
 
-class BasicBlockIR : public BaseIR
-{
+class MultiValueIR : public BaseIR {
 public:
+    std::vector<IrObject> values;
+    std::string toString(void* context) const override {
+        std::string str;
+        for (auto& value : values) {
+            str += value->toString(context);
+        }
+        return str;
+    }
+    std::string toAssembly(void*) const override;
+};
+
+class BasicBlockIR : public BaseIR {
+public:
+    operator bool() const override { return true; }
     std::string entrance;
     std::vector<IrObject> insts;  // instruments
+    std::map<std::string, std::string> symbol_map;
     // std::string exit;
 
-    std::string toString(void* context) const override
-    {
+    std::string toString(void* context) const override {
         assert(context != nullptr);
         std::string str = "%" + entrance + ":\n";
         std::string insts_str = "";
@@ -186,25 +251,17 @@ public:
         str += addIndent(insts_str);
         return str;
     }
-    std::string toAssembly(void* context) const override
-    {
-        assert(context != nullptr);
-        std::string str;
-        for (const auto& inst : insts) {
-            str += inst->toAssembly(context);
-        }
-        return str;
-    }
+    std::string toAssembly(void* context) const override;
+    std::string toBrainfuck(void*) const override;
 };
 
-class FunctionIR : public BaseIR
-{
+class FunctionIR : public BaseIR {
 public:
+    operator bool() const override { return true; }
     std::string name;
     IrObject ret_type;
     std::vector<IrObject> blocks;
-    std::string toString(void*) const override
-    {
+    std::string toString(void*) const override {
         Context ctx = {"", 0};
         std::string str = "fun @" + name + "(): " + "i32" + " {\n";
         for (const auto& block : blocks) {
@@ -213,26 +270,16 @@ public:
         str += "}\n";
         return str;
     }
-    std::string toAssembly(void*) const override
-    {
-        Context ctx = {"", 0};
-        std::string str = name + ":\n";
-        std::string blocks_str;
-        for (const auto& block : blocks) {
-            blocks_str += block->toAssembly((void*)&ctx);
-        }
-        str += addIndent(blocks_str);
-        return str;
-    }
+    std::string toAssembly(void*) const override;
+    std::string toBrainfuck(void*) const override;
 };
 
-class ProgramIR : public BaseIR
-{
+class ProgramIR : public BaseIR {
 public:
+    operator bool() const override { return true; }
     std::vector<IrObject> global_vars;  // global variables
     std::vector<IrObject> funcs;
-    std::string toString(void*) const override
-    {
+    std::string toString(void*) const override {
         std::string str;
         // for (const auto& var : global_vars) {
         //     // TODO:
@@ -242,21 +289,8 @@ public:
         }
         return str;
     }
-    std::string toAssembly(void*) const override
-    {
-        std::string str;
-        str += "  .text\n";
-        for (const auto& obj : funcs) {
-            auto func = static_cast<FunctionIR*>(obj.get());
-            if (func) {
-                str += "  .globl " + func->name + "\n";
-            }
-        }
-        for (const auto& func : funcs) {
-            str += func->toAssembly();
-        }
-        return str;
-    }
+    std::string toAssembly(void*) const override;
+    std::string toBrainfuck(void*) const override;
 };
 
 #endif

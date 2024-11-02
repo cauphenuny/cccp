@@ -28,6 +28,10 @@ message(STATUS "Include directory: ${INC_DIR}")
 # find Flex/Bison
 find_package(FLEX REQUIRED)
 find_package(BISON REQUIRED)
+# 使用指定路径中的 bison
+if(APPLE)
+  set(BISON_EXECUTABLE /opt/homebrew/opt/bison/bin/bison)
+endif()
 
 # generate lexer/parser
 file(GLOB_RECURSE L_SOURCES "src/*.l")
@@ -59,4 +63,10 @@ set(SOURCES ${C_SOURCES} ${CXX_SOURCES} ${CC_SOURCES}
 # executable
 add_executable(compiler ${SOURCES})
 set_target_properties(compiler PROPERTIES C_STANDARD 11 CXX_STANDARD 17)
-target_link_libraries(compiler koopa pthread dl)
+# target_link_libraries(compiler koopa pthread dl)
+target_link_libraries(compiler pthread dl)
+find_package(koopa QUIET)
+
+if (koopa_FOUND)
+  target_link_libraries(koopa)
+endif()

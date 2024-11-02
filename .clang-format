@@ -16,7 +16,7 @@ AllowShortCaseLabelsOnASingleLine: true
 AllowShortIfStatementsOnASingleLine: true
 AllowShortLoopsOnASingleLine: true
 BreakBeforeBinaryOperators: false
-BreakBeforeBraces: Linux
+BreakBeforeBraces: Attach
 IndentWidth: 4
 TabWidth: 4
 IncludeBlocks: Regroup
@@ -25,5 +25,5 @@ UseTab: Never
 SortIncludes: true
 PointerAlignment: Left
 IndentCaseLabels: true
-ColumnLimit: 80
+ColumnLimit: 100
 ...
