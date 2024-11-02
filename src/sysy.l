@@ -16,10 +16,22 @@
 
 using namespace std;
 
+int yycolumn = 1;
+extern int yylineno;
+
+void update_column() {
+    yycolumn += yyleng;
+}
+
+void update_line() {
+    yylineno++;
+    yycolumn = 1;
+}
+
 %}
 
 /* 空白符和注释 */
-WhiteSpace    [ \t\n\r]*
+WhiteSpace    [ \t\r]*
 LineComment   "//".*
 ParaComment   "/"\*([^*]|\*+[^"/"])*\*"/"
 
@@ -33,31 +45,33 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 
 %%
 
-{WhiteSpace}    { /* 忽略, 不做任何操作 */ }
-{LineComment}   { /* 忽略, 不做任何操作 */ }
-{ParaComment}   { /* 忽略, 不做任何操作 */ }
+{WhiteSpace}    { update_column(); /* 忽略, 不做任何操作 */ }
+{LineComment}   { update_column(); /* 忽略, 不做任何操作 */ }
+{ParaComment}   { update_column(); /* 忽略, 不做任何操作 */ }
 
-"int"           { return INT; }
-"return"        { return RETURN; }
-"const"         { return CONST; }
+\n              { update_line(); /* 更新行号 */ }
 
-"<"             { yylval.op_val = Operator::lt; return REL_OP; }
-">"             { yylval.op_val = Operator::gt; return REL_OP; }
-"<="            { yylval.op_val = Operator::leq; return REL_OP; }
-">="            { yylval.op_val = Operator::geq; return REL_OP; }
+"int"           { update_column(); return INT; }
+"return"        { update_column(); return RETURN; }
+"const"         { update_column(); return CONST; }
 
-"=="            { yylval.op_val = Operator::eq; return EQ_OP; }
-"!="            { yylval.op_val = Operator::neq; return EQ_OP; }
+"<"             { yylval.op_val = {Operator::lt, yylineno, yycolumn}; update_column(); return REL_OP; }
+">"             { yylval.op_val = {Operator::gt, yylineno, yycolumn}; update_column(); return REL_OP; }
+"<="            { yylval.op_val = {Operator::leq, yylineno, yycolumn}; update_column(); return REL_OP; }
+">="            { yylval.op_val = {Operator::geq, yylineno, yycolumn}; update_column(); return REL_OP; }
 
-"&&"            { return LAND; }
-"||"            { return LOR; }
+"=="            { yylval.op_val = {Operator::eq, yylineno, yycolumn}; update_column(); return EQ_OP; }
+"!="            { yylval.op_val = {Operator::neq, yylineno, yycolumn}; update_column(); return EQ_OP; }
 
-{Identifier}    { yylval.str_val = new string(yytext); return IDENT; }
+"&&"            { update_column(); return LAND; }
+"||"            { update_column(); return LOR; }
 
-{Decimal}       { yylval.int_val = strtol(yytext, nullptr, 0); return INT_CONST; }
-{Octal}         { yylval.int_val = strtol(yytext, nullptr, 0); return INT_CONST; }
-{Hexadecimal}   { yylval.int_val = strtol(yytext, nullptr, 0); return INT_CONST; }
+{Identifier}    { yylval.str_val = {new string(yytext), yylineno, yycolumn}; update_column(); return IDENT; }
 
-.               { return yytext[0]; }
+{Decimal}       { yylval.int_val = {strtol(yytext, nullptr, 0), yylineno, yycolumn}; update_column(); return INT_CONST; }
+{Octal}         { yylval.int_val = {strtol(yytext, nullptr, 0), yylineno, yycolumn}; update_column(); return INT_CONST; }
+{Hexadecimal}   { yylval.int_val = {strtol(yytext, nullptr, 0), yylineno, yycolumn}; update_column(); return INT_CONST; }
+
+.               { update_column(); return yytext[0]; }
 
 %%

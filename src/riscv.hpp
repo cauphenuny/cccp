@@ -22,7 +22,7 @@ inline std::string ValueIR::toAssembly(void* context) const {
             str += "mv\ta0, " + ctx->ret + "\n";
             str += "ret\t\n";
             break;
-        case Binary:
+        case Binary: {
             str += params[0]->toAssembly(context), op1 = ctx->ret;
             str += params[1]->toAssembly(context), op2 = ctx->ret;
             if (ctx->ret != "x0") {
@@ -30,32 +30,40 @@ inline std::string ValueIR::toAssembly(void* context) const {
             } else {
                 pos = ctx->ret = toRegister(ctx->reg_cnt++);
             }
-            if (content == "gt") {
-                str += "sgt\t" + pos + ", " + op1 + ", " + op2 + "\n";
-            } else if (content == "lt") {
-                str += "slt\t" + pos + ", " + op1 + ", " + op2 + "\n";
-            } else if (content == "ge") {
-                str += "slt\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                str += "seqz\t" + pos + ", " + pos + "\n";
-            } else if (content == "le") {
-                str += "sgt\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                str += "seqz\t" + pos + ", " + pos + "\n";
-            } else if (content == "ne") {
-                str += "xor\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                str += "seqz\t" + pos + ", " + pos + "\n";
-                str += "seqz\t" + pos + ", " + pos + "\n";
-            } else if (content == "eq") {
-                str += "xor\t" + pos + ", " + op1 + ", " + op2 + "\n";
-                str += "seqz\t" + pos + ", " + pos + "\n";
-            } else if (content == "mod") {
-                str += "rem\t" + pos + ", " + op1 + ", " + op2 + "\n";
-            } else if (content == "sub" || content == "add" || content == "mul" ||
-                       content == "div" || content == "and" || content == "or") {
-                str += content + "\t" + pos + ", " + op1 + ", " + op2 + "\n";
-            } else {
-                eprintf("not implemented binary operator %s!", content.c_str());
+            auto op = toOperator(content);
+            switch (op) {
+                case Operator::gt: str += "sgt\t" + pos + ", " + op1 + ", " + op2 + "\n"; break;
+                case Operator::lt: str += "slt\t" + pos + ", " + op1 + ", " + op2 + "\n"; break;
+                case Operator::geq:
+                    str += "slt\t" + pos + ", " + op1 + ", " + op2 + "\n";
+                    str += "seqz\t" + pos + ", " + pos + "\n";
+                    break;
+                case Operator::leq:
+                    str += "sgt\t" + pos + ", " + op1 + ", " + op2 + "\n";
+                    str += "seqz\t" + pos + ", " + pos + "\n";
+                    break;
+                case Operator::neq:
+                    str += "xor\t" + pos + ", " + op1 + ", " + op2 + "\n";
+                    str += "seqz\t" + pos + ", " + pos + "\n";
+                    str += "seqz\t" + pos + ", " + pos + "\n";
+                    break;
+                case Operator::eq:
+                    str += "xor\t" + pos + ", " + op1 + ", " + op2 + "\n";
+                    str += "seqz\t" + pos + ", " + pos + "\n";
+                    break;
+                case Operator::mod: str += "rem\t" + pos + ", " + op1 + ", " + op2 + "\n"; break;
+                case Operator::sub:
+                case Operator::add:
+                case Operator::mul:
+                case Operator::div:
+                case Operator::band:
+                case Operator::bor:
+                    str += content + "\t" + pos + ", " + op1 + ", " + op2 + "\n";
+                    break;
+                default: eprintf("not implemented binary operator %s!", content.c_str());
             }
             break;
+        }
         case Integer:
             if (content == "0") {
                 ctx->ret = "x0";

@@ -55,7 +55,7 @@ template <typename T> const std::function<T(T, T)> getFunction(Operator op) {
     return function_map<T>[(size_t)op];
 }
 
-constexpr std::array<std::pair<Operator, const char*>, 16> raw_map = {  //
+inline std::array<std::pair<Operator, const char*>, 16> raw_map = {  //
     {{Operator::no, "!"},
      {Operator::add, "+"},
      {Operator::sub, "-"},
@@ -73,7 +73,7 @@ constexpr std::array<std::pair<Operator, const char*>, 16> raw_map = {  //
      {Operator::land, "&&"},
      {Operator::lor, "||"}}};
 
-constexpr std::array<std::pair<Operator, const char*>, 13> name_map = {  //
+inline std::array<std::pair<Operator, const char*>, 13> name_map = {  //
     {{Operator::neq, "ne"},
      {Operator::eq, "eq"},
      {Operator::gt, "gt"},
@@ -88,7 +88,7 @@ constexpr std::array<std::pair<Operator, const char*>, 13> name_map = {  //
      {Operator::band, "and"},
      {Operator::bor, "or"}}};
 
-constexpr const char* toRawOperator(Operator op) {
+inline std::string toRawOperator(Operator op) {
     for (const auto& pair : raw_map) {
         if (pair.first == op) {
             return pair.second;
@@ -97,7 +97,11 @@ constexpr const char* toRawOperator(Operator op) {
     return "unknown";
 }
 
-constexpr const char* toIrOperatorName(Operator op) {
+inline std::string serialize(const Operator& op) {
+    return toRawOperator(op);
+}
+
+inline const char* toIrOperatorName(Operator op) {
     for (const auto& pair : name_map) {
         if (pair.first == op) {
             return pair.second;
@@ -106,7 +110,7 @@ constexpr const char* toIrOperatorName(Operator op) {
     return "unknown";
 }
 
-constexpr Operator toOperator(const std::string& str) {
+inline Operator toOperator(const std::string& str) {
     for (const auto& pair : name_map) {
         if (pair.second == str) {
             return pair.first;
@@ -120,7 +124,7 @@ public:
     virtual ~BaseIR() = default;
     virtual std::string toString(void* context = nullptr) const = 0;
     virtual std::string toAssembly(void* context = nullptr) const = 0;
-    virtual std::string toBrainfuck(void* context = nullptr) const { return ""; }
+    virtual std::string toBrainfuck(void* context = nullptr) const = 0;
     friend std::ostream& operator<<(std::ostream& os, const BaseIR& ir) {
         os << ir.toString();
         return os;
