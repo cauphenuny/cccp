@@ -21,22 +21,33 @@ void cat(const char* file) {
     }
 }
 
-int main(int argc, const char* argv[])
-{
-    assert(argc == 5);
-    const string mode = argv[1];
-    const char* input = argv[2];
-    const char* output = argv[4];
+int usage(std::string name) {
+    cerr << "usage: " + name + " [-options, ...] input [-o output]" << endl;
+    cerr << "options: -ast | -koopa | -riscv | -brfk" << endl;
+    return 1;
+}
 
-    // const string mode = "-debug3";
-    // const char* input = "test/lv4-2.c";
-    // const char* output = "test/lv4-2.o";
-
-    cat(input);
+int main(int argc, const char* argv[]) {
+    map<std::string, bool> options;
+    const char* input = nullptr;
+    const char* output = nullptr;
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] == '-') {
+            options[string(argv[i] + 1)] = 1;
+        } else {
+            if (input == nullptr) {
+                input = argv[i];
+            } else if (output == nullptr) {
+                output = argv[i];
+            } else {
+                return usage(argv[0]);
+            }
+        }
+    }
+    if (input == nullptr) return usage(argv[0]);
 
     yyin = fopen(input, "r");
     assert(yyin);
-    cerr << "parsing\n";
 
     unique_ptr<BaseAST> ast;
     try {
@@ -46,7 +57,6 @@ int main(int argc, const char* argv[])
         cerr << "parse error: " << e.what() << endl;
         return 1;
     }
-    cerr << "parsed\n";
 
     IrObject ir;
     try {
@@ -56,35 +66,23 @@ int main(int argc, const char* argv[])
         return 2;
     }
 
-    std::fstream fs(output, std::ios::out);
-    auto& out = fs;
-    auto& debug = cerr;
-
-    if (mode == "-koopa") {
-        out << ir->toString() << endl;
-    } else if (mode == "-riscv") {
-        out << ir->toAssembly() << endl;
-    } else if (mode == "-brfk") {
-        debug << ast->toString() << endl;
-        debug << ir->toString() << endl;
-        debug << ir->toBrainfuck() << endl;
-        out << ir->toBrainfuck() << endl;
-    } else if (mode == "-debug1") {
-        debug << ast->toString() << endl;
-    } else if (mode == "-debug2") {
-        debug << ast->toString() << endl;
-        debug << ir->toString() << endl;
-    } else if (mode == "-debug3") {
-        debug << ast->toString() << endl;
-        debug << ir->toString() << endl;
-        debug << ir->toAssembly() << endl;
-    } else if (mode == "-debugx") {
-        debug << ast->toString() << endl;
-        debug << ir->toString() << endl;
-        debug << ir->toBrainfuck() << endl;
+    FILE* file;
+    if (output) {
+        file = fopen(output, "w");
     } else {
-        cerr << "usage: " + string(argv[0]) + " [-riscv|-koopa|-brfk] input -o output"
-             << endl;
+        file = stdout;
+    }
+    if (options["ast"]) {
+        fprintf(file, "%s\n", ast->toString().c_str());
+    }
+    if (options["koopa"]) {
+        fprintf(file, "%s\n", ir->toString().c_str());
+    }
+    if (options["riscv"]) {
+        fprintf(file, "%s\n", ir->toAssembly().c_str());
+    }
+    if (options["brfk"]) {
+        fprintf(file, "%s\n", ir->toBrainfuck().c_str());
     }
     return 0;
 }
