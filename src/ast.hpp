@@ -124,7 +124,7 @@ public:
 class ExpAST : public BaseAST {
 public:
     AstObject exp;
-    std::string toString() const override { return serializeClass("ExpAST", exp); }
+    std::string toString() const override { return exp->toString(); }
     ExpAST(AstObject&& _exp) : BaseAST(_exp->line, _exp->column), exp(std::move(_exp)) {
         exp->parent = this;
     }
