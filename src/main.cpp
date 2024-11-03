@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <vector>
 #include <stdexcept>
 #include <string>
 
@@ -24,28 +25,33 @@ void cat(const char* file) {
 
 int usage(std::string name) {
     cerr << "usage: " + name + " -option1 [-option2, ...] input [-o output]" << endl;
-    cerr << "options: -ast | -koopa | -riscv | -brain" << endl;
+    cerr << "options: -ast | -ir | -koopa | -riscv | -brain" << endl;
     return 1;
 }
 
 int main(int argc, const char* argv[]) {
-    map<std::string, bool> options;
+    vector<std::string> options;
     const char* input = nullptr;
     const char* output = nullptr;
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
-            options[string(argv[i] + 1)] = 1;
+            string opt = argv[i] + 1;
+            if (opt == "o") {
+                if (i + 1 < argc) {
+                    output = argv[++i];
+                } else {
+                    return usage(argv[0]);
+                }
+            } else options.push_back(string(argv[i] + 1));
         } else {
             if (input == nullptr) {
                 input = argv[i];
-            } else if (output == nullptr) {
-                output = argv[i];
-            } else {
+            } else{
                 return usage(argv[0]);
             }
         }
     }
-    if (input == nullptr) return usage(argv[0]);
+    if (input == nullptr || options.empty()) return usage(argv[0]);
 
     yyin = fopen(input, "r");
     assert(yyin);
@@ -60,12 +66,6 @@ int main(int argc, const char* argv[]) {
     } else {
         file = stdout;
     }
-    if (options["ast"]) {
-        fprintf(file, "%s\n", ast->toString().c_str());
-    }
-    if (!options["ir"] && !options["koopa"] && !options["riscv"] && !options["brain"]) {
-        return 0;
-    }
     IrObject ir;
     try {
         ir = ast->toIr();
@@ -73,37 +73,38 @@ int main(int argc, const char* argv[]) {
         cerr << "[AST error] " << e.what() << endl;
         return 2;
     }
-    if (options["ir"]) {
-        fprintf(file, "%s\n", ir->toString().c_str());
-    }
-    if (options["koopa"]) {
-        try {
-            fprintf(file, "%s\n", ir->print().c_str());
-        } catch (const std::runtime_error& e) {
-            cerr << "[IR error] " << e.what() << endl;
-            return 3;
-        }
-    }
-    if (options["riscv"]) {
-        try {
-            fprintf(file, "%s\n", ir->printRiscV().c_str());
-        } catch (const std::runtime_error& e) {
-            cerr << "[ASM error] " << e.what() << endl;
-            return 4;
-        }
-    }
-    if (options["brain"]) {
-        std::string bf;
-        try {
-            bf = ir->printBf();
-        } catch (const std::runtime_error& e) {
-            cerr << "[BF error] " << e.what() << endl;
-            return 6;
-        }
-        if (options["z"]) {
-            fprintf(file, "%s\n", bfCompress(bf).c_str());
-        } else {
-            fprintf(file, "%s\n", bf.c_str());
+    for (const auto& opt : options) {
+        if (opt == "ast") {
+            fprintf(file, "%s\n", ast->toString().c_str());
+        } else if (opt == "ir") {
+            fprintf(file, "%s\n", ir->toString().c_str());
+        } else if (opt == "koopa") {
+            try {
+                fprintf(file, "%s\n", ir->print().c_str());
+            } catch (const std::runtime_error& e) {
+                cerr << "[IR error] " << e.what() << endl;
+                return 3;
+            }
+        } else if (opt == "riscv") {
+            try {
+                fprintf(file, "%s\n", ir->printRiscV().c_str());
+            } catch (const std::runtime_error& e) {
+                cerr << "[ASM error] " << e.what() << endl;
+                return 4;
+            }
+        } else if (opt == "brain" || opt == "brainz") {
+            std::string bf;
+            try {
+                bf = ir->printBf();
+            } catch (const std::runtime_error& e) {
+                cerr << "[BF error] " << e.what() << endl;
+                return 5;
+            }
+            if (opt.back() == 'z') {
+                fprintf(file, "%s\n", bfCompress(bf).c_str());
+            } else {
+                fprintf(file, "%s\n", bf.c_str());
+            }
         }
     }
     return 0;

@@ -244,7 +244,7 @@ public:
     // std::string exit;
 
     std::string toString() const override {
-        return serializeClass("BasicBlockIR", entrance, insts, symbol_map);
+        return serializeClass("BasicBlockIR", entrance, symbol_map, insts);
     }
     std::string print(void* context) const override {
         assert(context != nullptr);

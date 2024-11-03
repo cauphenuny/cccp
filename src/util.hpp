@@ -65,11 +65,11 @@ template <typename T1, typename T2> std::string toString(const std::pair<T1, T2>
 }
 
 template <typename T> std::string toString(const std::vector<T>& vec) {
-    return tryCompressStr("std::vector {\n" + addIndent(toString(vec.begin(), vec.end())) + "}");
+    return tryCompressStr("std::vector [\n" + addIndent(toString(vec.begin(), vec.end())) + "]");
 }
 
 template <typename K, typename V> std::string toString(const std::map<K, V>& m) {
-    return tryCompressStr("std::map {\n" + addIndent(toString(m.begin(), m.end())) + "}");
+    return tryCompressStr("std::map [\n" + addIndent(toString(m.begin(), m.end())) + "]");
 }
 
 std::string serialize(const auto& val) {
