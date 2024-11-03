@@ -61,14 +61,9 @@ int main(int argc, const char* argv[]) {
         file = stdout;
     }
     if (options["ast"]) {
-        try {
-            fprintf(file, "%s\n", ast->toString().c_str());
-        } catch (const std::runtime_error& e) {
-            cerr << "[AST error] " << e.what() << endl;
-            return 2;
-        }
+        fprintf(file, "%s\n", ast->toString().c_str());
     }
-    if (!options["koopa"] && !options["riscv"] && !options["brain"]) {
+    if (!options["ir"] && !options["koopa"] && !options["riscv"] && !options["brain"]) {
         return 0;
     }
     IrObject ir;
@@ -76,28 +71,31 @@ int main(int argc, const char* argv[]) {
         ir = ast->toIr();
     } catch (const std::runtime_error& e) {
         cerr << "[AST error] " << e.what() << endl;
-        return 3;
+        return 2;
+    }
+    if (options["ir"]) {
+        fprintf(file, "%s\n", ir->toString().c_str());
     }
     if (options["koopa"]) {
         try {
-            fprintf(file, "%s\n", ir->toString().c_str());
+            fprintf(file, "%s\n", ir->print().c_str());
         } catch (const std::runtime_error& e) {
             cerr << "[IR error] " << e.what() << endl;
-            return 4;
+            return 3;
         }
     }
     if (options["riscv"]) {
         try {
-            fprintf(file, "%s\n", ir->toAssembly().c_str());
+            fprintf(file, "%s\n", ir->printRiscV().c_str());
         } catch (const std::runtime_error& e) {
             cerr << "[ASM error] " << e.what() << endl;
-            return 5;
+            return 4;
         }
     }
     if (options["brain"]) {
         std::string bf;
         try {
-            bf = ir->toBrainfuck();
+            bf = ir->printBf();
         } catch (const std::runtime_error& e) {
             cerr << "[BF error] " << e.what() << endl;
             return 6;

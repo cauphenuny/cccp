@@ -3,13 +3,14 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <map>
 #include <source_location>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
 
-inline std::string addIndent(const std::string& str, int indent = 1) {
+inline std::string addIndent(std::string_view str, int indent = 1) {
     std::string indent_str;
     for (int i = 0; i < indent; i++) indent_str += "  ";
     bool indent_flag = 1;
@@ -24,24 +25,62 @@ inline std::string addIndent(const std::string& str, int indent = 1) {
     if (result_str.back() != '\n') result_str += '\n';
     return result_str;
 }
-template <typename T> std::string serialize(const std::vector<T>& vec) {
+
+inline std::string compressStr(std::string_view str) {
+    std::string ret;
+    char prev = ' ';
+    for (auto i : str) {
+        if (!isspace(i))
+            ret += i;
+        else if (!isspace(prev))
+            ret += ' ';
+        prev = i;
+    }
+    return ret;
+}
+
+inline std::string tryCompressStr(std::string_view str) {
+    if (str.length() < 60)
+        return compressStr(str);
+    else
+        return std::string(str);
+}
+
+std::string serialize(const auto& val);
+
+std::string toString(const auto& begin, const auto& end) {
     std::string str;
-    for (auto& val : vec) {
-        str += serialize(val) + ",\n";
+    for (auto it = begin; it != end; it++) {
+        str += serialize(*it) + ",\n";
     }
     if (!str.empty()) {
         str.pop_back(), str.pop_back();
     }
-    return "vector {\n" + addIndent(str) + "}";
+    return tryCompressStr(str);
+}
+
+template <typename T1, typename T2> std::string toString(const std::pair<T1, T2>& p) {
+    return tryCompressStr("{\n" + addIndent(serialize(p.first) + ",\n" + serialize(p.second)) +
+                          "}\n");
+}
+
+template <typename T> std::string toString(const std::vector<T>& vec) {
+    return tryCompressStr("std::vector {\n" + addIndent(toString(vec.begin(), vec.end())) + "}");
+}
+
+template <typename K, typename V> std::string toString(const std::map<K, V>& m) {
+    return tryCompressStr("std::map {\n" + addIndent(toString(m.begin(), m.end())) + "}");
 }
 
 std::string serialize(const auto& val) {
     if constexpr (requires { std::string(val); }) {
-        return std::string(val);
-    } else if constexpr (requires { std::to_string(val); }) {
-        return std::to_string(val);
+        return "\"" + std::string(val) + "\"";
+    } else if constexpr (requires { toString(val); }) {
+        return toString(val);
     } else if constexpr (requires { val->toString(); }) {
         return val->toString();
+    } else if constexpr (requires { std::to_string(val); }) {
+        return std::to_string(val);
     } else {
         static_assert(false, "can not convert to string");
     }
@@ -61,7 +100,7 @@ std::string serializeVar(const char* names, const auto& var, const auto&... rest
 }
 
 #define serializeClass(name, ...) \
-    name " {\n" + addIndent(serializeVar(#__VA_ARGS__, __VA_ARGS__)) + "}"
+    tryCompressStr(name " {\n" + addIndent(serializeVar(#__VA_ARGS__, __VA_ARGS__)) + "}")
 
 inline std::string formatLocation(std::source_location location = std::source_location::current()) {
     return std::format("{}:{} `{}`",

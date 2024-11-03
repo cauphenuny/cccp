@@ -13,19 +13,19 @@ inline std::string toRegister(int count) {
         return "a" + std::to_string(count - 7 + 2);
 }
 
-inline std::string ValueIR::toAssembly(void* context) const {
+inline std::string ValueIR::printRiscV(void* context) const {
     assert(context != nullptr);
     auto ctx = (Context*)context;
     std::string str, op1, op2, pos;
     switch (type) {
         case Return:
-            str += params[0]->toAssembly(context);
+            str += params[0]->printRiscV(context);
             str += "mv\ta0, " + ctx->ret + "\n";
             str += "ret\t\n";
             break;
         case Binary: {
-            str += params[0]->toAssembly(context), op1 = ctx->ret;
-            str += params[1]->toAssembly(context), op2 = ctx->ret;
+            str += params[0]->printRiscV(context), op1 = ctx->ret;
+            str += params[1]->printRiscV(context), op2 = ctx->ret;
             if (ctx->ret != "x0") {
                 pos = ctx->ret;
             } else {
@@ -78,34 +78,34 @@ inline std::string ValueIR::toAssembly(void* context) const {
     return str;
 }
 
-inline std::string MultiValueIR::toAssembly(void* context) const {
+inline std::string MultiValueIR::printRiscV(void* context) const {
     std::string str;
     for (auto& value : values) {
-        str += value->toAssembly(context);
+        str += value->printRiscV(context);
     }
     return str;
 }
 
-inline std::string BasicBlockIR::toAssembly(void* context) const {
+inline std::string BasicBlockIR::printRiscV(void* context) const {
     assert(context != nullptr);
     std::string str;
     for (const auto& inst : insts) {
-        str += inst->toAssembly(context);
+        str += inst->printRiscV(context);
     }
     return str;
 }
 
-inline std::string FunctionIR::toAssembly(void*) const {
+inline std::string FunctionIR::printRiscV(void*) const {
     Context ctx = {"", 0};
     std::string str = name + ":\n";
     std::string blocks_str;
     for (const auto& block : blocks) {
-        blocks_str += block->toAssembly((void*)&ctx);
+        blocks_str += block->printRiscV((void*)&ctx);
     }
     str += addIndent(blocks_str);
     return str;
 }
-inline std::string ProgramIR::toAssembly(void*) const {
+inline std::string ProgramIR::printRiscV(void*) const {
     std::string str;
     str += "  .text\n";
     for (const auto& obj : funcs) {
@@ -115,7 +115,7 @@ inline std::string ProgramIR::toAssembly(void*) const {
         }
     }
     for (const auto& func : funcs) {
-        str += func->toAssembly();
+        str += func->printRiscV();
     }
     return str;
 }

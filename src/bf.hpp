@@ -268,13 +268,13 @@ inline BfBinaryFunction getBfFunction(Operator op) {
     throw runtimeError("unknown operator {}!", toIrOperatorName(op));
 }
 
-inline std::string ValueIR::toBrainfuck(void* context) const {
+inline std::string ValueIR::printBf(void* context) const {
     std::string str;
     assert(context != nullptr);
     auto& ctx = *(BfContext*)(context);
     switch (type) {
         case Return:
-            str += params[0]->toBrainfuck(context);
+            str += params[0]->printBf(context);
             str += bfMove(ctx.tape, ctx.ret);
             break;
         case Integer: {
@@ -282,9 +282,9 @@ inline std::string ValueIR::toBrainfuck(void* context) const {
             break;
         }
         case Binary: {
-            str += params[0]->toBrainfuck(context);
+            str += params[0]->printBf(context);
             const unsigned op1 = ctx.ret;
-            str += params[1]->toBrainfuck(context);
+            str += params[1]->printBf(context);
             const unsigned op2 = ctx.ret;
             str += bfAlloc(ctx.tape, ctx.ret);
             str += getBfFunction(toOperator(content))(ctx.tape, op1, op2, ctx.ret);
@@ -295,7 +295,7 @@ inline std::string ValueIR::toBrainfuck(void* context) const {
             ctx.symbol_table[content] = ctx.ret;
             break;
         case Store: {
-            str += params[0]->toBrainfuck(context);
+            str += params[0]->printBf(context);
             const unsigned exp_pos = ctx.ret;
             const unsigned var_pos = ctx.symbol_table[content];
             str += bfClear(ctx.tape, var_pos);
@@ -312,19 +312,19 @@ inline std::string ValueIR::toBrainfuck(void* context) const {
     return str;
 }
 
-inline std::string MultiValueIR::toBrainfuck(void* context) const {
+inline std::string MultiValueIR::printBf(void* context) const {
     std::string str;
     for (auto& value : values) {
-        str += value->toBrainfuck(context);
+        str += value->printBf(context);
     }
     return str;
 }
 
-inline std::string BasicBlockIR::toBrainfuck(void*) const {
+inline std::string BasicBlockIR::printBf(void*) const {
     std::string str;
     BfContext context;
     for (const auto& inst : insts) {
-        str += inst->toBrainfuck(&context);
+        str += inst->printBf(&context);
     }
     return str;
 }
@@ -346,19 +346,19 @@ inline std::string bfCompress(std::string s) {
     return ret;
 }
 
-inline std::string FunctionIR::toBrainfuck(void*) const {
+inline std::string FunctionIR::printBf(void*) const {
     std::string blocks_str = "; " + name + "()\n";
     for (const auto& block : blocks) {
-        blocks_str += block->toBrainfuck();
+        blocks_str += block->printBf();
     }
     // std::cerr << compress(blocks_str) << std::endl;
     return blocks_str;
 }
 
-inline std::string ProgramIR::toBrainfuck(void*) const {
+inline std::string ProgramIR::printBf(void*) const {
     std::string str;
     for (const auto& func : funcs) {
-        str += func->toBrainfuck();
+        str += func->printBf();
     }
     return str;
 }

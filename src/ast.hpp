@@ -355,6 +355,7 @@ public:
         Return,
         Assign,
     } type;
+    std::string toString(type_t t) { return t == Return ? "Return" : "Assign"; }
     struct AssignContainer {
         AstObject lval;
         AstObject exp;
@@ -370,15 +371,14 @@ public:
         content = AssignContainer{std::move(_lval), std::move(_exp)};
     }
     std::string toString() const override {
-        std::string type_str = type == Return ? "Return" : "Assign";
         switch (type) {
             case Return: {
                 auto& exp = std::get<AstObject>(content);
-                return serializeClass("StmtAST", type_str, exp);
+                return serializeClass("StmtAST", type, exp);
             }
             case Assign: {
                 auto& [lval, exp] = std::get<AssignContainer>(content);
-                return serializeClass("StmtAST", type_str, lval, exp);
+                return serializeClass("StmtAST", type, lval, exp);
             }
         }
         throw runtimeError("invalid statement");
@@ -524,14 +524,14 @@ public:
         Decl,
         Stmt,
     } type;
+    std::string toString(type_t t) { return t == Decl ? "Decl" : "Stmt"; }
     AstObject content;
     BlockItemAST(int line, int column) : BaseAST(line, column) {}
     BlockItemAST(type_t type, AstObject&& _content) : BaseAST(_content->line, _content->column), type(type), content(std::move(_content)) {
         content->parent = this;
     }
     std::string toString() const override {
-        const std::string type_str = type == Decl ? "Decl" : "Stmt";
-        return serializeClass("BlockItemAST", type_str, content);
+        return serializeClass("BlockItemAST", type, content);
     }
     IrObject toIr() const override { return content->toIr(); }
 };
