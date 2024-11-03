@@ -2,6 +2,7 @@
 #define RISCV_HPP
 
 #include "ir.hpp"
+#include "util.hpp"
 
 #include <string>
 
@@ -60,7 +61,7 @@ inline std::string ValueIR::toAssembly(void* context) const {
                 case Operator::bor:
                     str += content + "\t" + pos + ", " + op1 + ", " + op2 + "\n";
                     break;
-                default: eprintf("not implemented binary operator %s!", content.c_str());
+                default: runtimeError("not implemented binary operator {}!", content);
             }
             break;
         }
@@ -72,7 +73,7 @@ inline std::string ValueIR::toAssembly(void* context) const {
                 str += "li\t" + ctx->ret + ", " + content + "\n";
             }
             break;
-        default: eprintf("not implemented value type %d!", type); break;
+        default: runtimeError("not implemented value type {}!", (int)type); break;
     }
     return str;
 }

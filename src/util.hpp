@@ -1,13 +1,15 @@
 #ifndef UTIL_HPP
 #define UTIL_HPP
-#include <string>
+#include <cstring>
+#include <filesystem>
+#include <format>
+#include <source_location>
 #include <sstream>
-#include <cstdio>
+#include <string>
+#include <string_view>
+#include <vector>
 
-#define eprintf(fmt, ...) fprintf(stderr, "%s:%d:%s: " fmt "\n", __FILE__, __LINE__, __func__, ## __VA_ARGS__), exit(1)
-
-inline std::string addIndent(const std::string& str, int indent = 1)
-{
+inline std::string addIndent(const std::string& str, int indent = 1) {
     std::string indent_str;
     for (int i = 0; i < indent; i++) indent_str += "  ";
     bool indent_flag = 1;
@@ -33,7 +35,7 @@ template <typename T> std::string serialize(const std::vector<T>& vec) {
     return "vector {\n" + addIndent(str) + "}";
 }
 
-template <typename T> std::string serialize(const T& val) {
+std::string serialize(const auto& val) {
     if constexpr (requires { std::string(val); }) {
         return std::string(val);
     } else if constexpr (requires { std::to_string(val); }) {
@@ -60,5 +62,18 @@ std::string serializeVar(const char* names, const auto& var, const auto&... rest
 
 #define serializeClass(name, ...) \
     name " {\n" + addIndent(serializeVar(#__VA_ARGS__, __VA_ARGS__)) + "}"
+
+inline std::string formatLocation(std::source_location location = std::source_location::current()) {
+    return std::format("{}:{} `{}`",
+                       std::filesystem::path(location.file_name()).filename().string(),
+                       location.line(), location.function_name());
+}
+
+inline auto generateError(std::string_view location, const char* fmt, auto&&... args) {
+    return std::runtime_error(
+        std::format("{} ({})", std::vformat(fmt, std::make_format_args(args...)), location));
+}
+
+#define runtimeError(...) generateError(formatLocation(), __VA_ARGS__)
 
 #endif

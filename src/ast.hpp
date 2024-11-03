@@ -8,7 +8,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <variant>
 
@@ -27,11 +26,11 @@ public:
     BaseAST(int line, int column) : line(line), column(column) {}
     virtual ~BaseAST() = default;
     virtual IrObject toIr() const {
-        throw std::runtime_error(std::format("{}:{}: can not convert {} to IR", line, column, typeid(*this).name()));
+        throw runtimeError("{}:{}: can not convert {} to IR", line, column, typeid(*this).name());
     }
     virtual bool isConstexpr() const { return false; }
     virtual int calc() const {
-        throw std::runtime_error(std::format("{}:{}: can not calculate {}", line, column, typeid(*this).name()));
+        throw runtimeError("{}:{}: can not calculate {}", line, column, typeid(*this).name());
     }
     virtual std::string toString() const = 0;
     explicit operator std::string() const { return toString(); }
@@ -49,7 +48,7 @@ public:
     IrObject toIr() const override {
         auto ir = std::make_unique<ProgramIR>();
         ir->funcs.push_back(func_def->toIr());
-        return std::move(ir);
+        return ir;
     }
 };
 
@@ -67,7 +66,7 @@ public:
         ir->name = ident;
         ir->ret_type = func_type->toIr();
         ir->blocks.push_back(block->toIr());
-        return std::move(ir);
+        return ir;
     }
 };
 
@@ -85,7 +84,7 @@ public:
             ir->type = ValueType::Unknown;
             ir->content = type;
         }
-        return std::move(ir);
+        return ir;
     }
 };
 
@@ -97,13 +96,13 @@ public:
     IrObject toIr() const override {
         auto ir = std::make_unique<ValueIR>();
         if (type == "int") {
-            ir->type = ValueType::Integer;
+            ir->type = ValueType::Type;
             ir->content = "i32";
         } else {
             ir->type = ValueType::Unknown;
             ir->content = type;
         }
-        return std::move(ir);
+        return ir;
     }
 };
 
@@ -115,7 +114,7 @@ public:
         auto ir = std::make_unique<ValueIR>();
         ir->type = ValueType::Integer;
         ir->content = std::to_string(number);
-        return std::move(ir);
+        return ir;
     }
     bool isConstexpr() const override { return true; }
     int calc() const override { return number; }
@@ -159,17 +158,17 @@ public:
     int calc() const override {
         auto value = get_value();
         if (!value.has_value()) {
-            throw std::runtime_error(std::format("{}:{}: undefined variable: {}", line, column, ident));
+            throw runtimeError("{}:{}: undefined variable: {}", line, column, ident);
         }
         if (std::holds_alternative<BaseAST*>(value.value()))
-            throw std::runtime_error(std::format("{}:{}: not constant variable: {}", line, column, ident));
+            throw runtimeError("{}:{}: not constant variable: {}", line, column, ident);
         return std::get<int>(value.value());
     }
     std::string toString() const override { return serializeClass("LValAST", ident); }
     IrObject toIr() const override {
         auto value = get_value();
         if (!value.has_value()) {
-            throw std::runtime_error(std::format("{}:{}: undefined variable: {}", line, column, ident));
+            throw runtimeError("{}:{}: undefined variable: {}", line, column, ident);
         }
         if (std::holds_alternative<int>(value.value())) {
             return NumberAST(std::get<int>(value.value())).toIr();
@@ -232,6 +231,7 @@ public:
             case Virtual: return std::get<AstObject>(content)->isConstexpr();
             case Real: return std::get<Container>(content).unary_exp->isConstexpr();
         }
+        throw runtimeError("invalid unary expression");
     }
 
     std::string toString() const override {
@@ -241,6 +241,7 @@ public:
                 auto& [op, exp] = std::get<Container>(content);
                 return serializeClass("UnaryExpAST", op, exp);
         }
+        throw runtimeError("invalid unary expression");
     }
 
     IrObject toIr() const override {
@@ -257,14 +258,14 @@ public:
                         ir->content = op == Operator::sub ? "sub" : "eq";
                         ir->params.push_back(NumberAST(0).toIr());
                         ir->params.push_back(exp->toIr());
-                        return std::move(ir);
+                        return ir;
                     default:
-                        eprintf("invalid operator %s for unary expression!",
-                                toRawOperator(op).c_str());
-                        return IrObject();
+                        throw runtimeError("invalid operator {} for unary expression",
+                                           toRawOperator(op));
                 }
             }
         }
+        throw runtimeError("invalid unary expression");
     }
 
     int calc() const override {
@@ -275,6 +276,7 @@ public:
                 return getFunction<int>(op)(0, exp->calc());
             }
         }
+        throw runtimeError("invalid unary expression");
     }
 };
 
@@ -309,6 +311,7 @@ public:
                 auto& [left, op, right] = std::get<Container>(content);
                 return left->isConstexpr() && right->isConstexpr();
         }
+        throw runtimeError("invalid binary expression");
     }
     std::string toString() const override {
         switch (type) {
@@ -317,6 +320,7 @@ public:
                 auto& [left, op, right] = std::get<Container>(content);
                 return serializeClass("BinaryExpAST", op, left, right);
         }
+        throw runtimeError("invalid binary expression");
     }
     IrObject toIr() const override {
         switch (type) {
@@ -328,9 +332,10 @@ public:
                 ir->content = toIrOperatorName(op);
                 ir->params.push_back(left->toIr());
                 ir->params.push_back(right->toIr());
-                return std::move(ir);
+                return ir;
             }
         }
+        throw runtimeError("invalid binary expression");
     }
     int calc() const override {
         switch (type) {
@@ -340,6 +345,7 @@ public:
                 return getFunction<int>(op)(left->calc(), right->calc());
             }
         }
+        throw runtimeError("invalid binary expression");
     }
 };
 
@@ -375,6 +381,7 @@ public:
                 return serializeClass("StmtAST", type_str, lval, exp);
             }
         }
+        throw runtimeError("invalid statement");
     }
     IrObject toIr() const override {
         switch (type) {
@@ -382,7 +389,7 @@ public:
                 auto ir = std::make_unique<ValueIR>(ValueType::Return);
                 ir->content = "ret";
                 ir->params.push_back(std::get<AstObject>(content)->toIr());
-                return std::move(ir);
+                return ir;
             }
             case Assign: {
                 auto& [raw_lval, raw_exp] = std::get<AssignContainer>(content);
@@ -390,9 +397,10 @@ public:
                 auto exp = dynamic_cast<ExpAST*>(raw_exp.get());
                 auto ir = std::make_unique<ValueIR>(ValueType::Store, lval->ident);
                 ir->params.push_back(exp->toIr());
-                return std::move(ir);
+                return ir;
             }
         }
+        throw runtimeError("invalid statement");
     }
 };
 
@@ -405,13 +413,13 @@ public:
         : BaseAST(init_exp->line, init_exp->column), ident(ident), init_exp(std::move(init_exp)) {}
     void writeSymbol() const {
         if (!init_exp->isConstexpr()) {
-            throw std::runtime_error(std::format("{}:{}: initializer is not a constant expression", line, column));
+            throw runtimeError("{}:{}: initializer is not a constant expression", line, column);
         }
         for (auto scope = parent; scope; scope = scope->parent) {
             auto& map = scope->symbol_table;
             if (map) {
                 if (map->find(ident) != map->end())
-                    throw std::runtime_error(std::format("{}:{}: redefined variable: {}", line, column, ident));
+                    throw runtimeError("{}:{}: redefined variable: {}", line, column, ident);
                 (*map)[ident] = init_exp->calc();
                 return;
             }
@@ -420,7 +428,8 @@ public:
         for (const BaseAST* ancestor = this; ancestor; ancestor = ancestor->parent) {
             trace += "---------------\n" + ancestor->toString() + "\n";
         }
-        throw std::runtime_error(std::format("{}:{}: no available scope for variable {}\nback trace:\n{}", line, column, ident, trace));
+        throw runtimeError("{}:{}: no available scope for variable {}\nback trace:\n{}", line,
+                           column, ident, trace);
     }
     std::string toString() const override { return serializeClass("ConstDefAST", ident, init_exp); }
     IrObject toIr() const override {
@@ -458,7 +467,7 @@ public:
             auto& map = scope->symbol_table;
             if (map) {
                 if (map->find(ident) != map->end())
-                    throw std::runtime_error(std::format("{}:{}: redefined variable: {}", line, column, ident));
+                    throw runtimeError("{}:{}: redefined variable: {}", line, column, ident);
                 (*map)[ident] = init_exp.get();
                 return;
             }
@@ -467,7 +476,8 @@ public:
         for (const BaseAST* ancestor = this; ancestor; ancestor = ancestor->parent) {
             trace += "---------------\n" + ancestor->toString() + "\n";
         }
-        throw std::runtime_error(std::format("{}:{}: no available scope for variable {}\nback trace:\n{}", line, column, ident, trace));
+        throw runtimeError("{}:{}: no available scope for variable {}\nback trace:\n{}", line,
+                           column, ident, trace);
     }
     IrObject toIr() const override {
         writeSymbol();
@@ -480,7 +490,7 @@ public:
             inst2->params.push_back(init_exp->toIr());
             ir->values.push_back(std::move(inst2));
         }
-        return std::move(ir);
+        return ir;
     }
 };
 
@@ -495,7 +505,7 @@ public:
         for (auto& var_def : var_defs) {
             ir->values.push_back(var_def->toIr());
         }
-        return std::move(ir);
+        return ir;
     }
 };
 
@@ -543,7 +553,7 @@ public:
                     std::move(stmt_ir));  // probably has empty IR so need to check it
         }
         symbol_table->clear();
-        return std::move(ir);
+        return ir;
     }
 };
 

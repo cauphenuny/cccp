@@ -22,12 +22,12 @@ struct BfContext {
 
 inline std::string repeat(std::string str, unsigned times) {
     std::string ret_str;
-    for (int i = 0; i < times; i++) ret_str += str;
+    for (unsigned i = 0; i < times; i++) ret_str += str;
     return ret_str;
 }
 
 inline void bfFree(Tape& tape, unsigned pos, unsigned size = 1) {
-    for (int i = 0; i < size; i++)
+    for (unsigned i = 0; i < size; i++)
         assert(tape.used[pos + i] && "free unallocated cell!"), tape.used[pos + i] = false;
 }
 
@@ -71,7 +71,7 @@ inline std::string bfFor(Tape& tape, unsigned pos, std::function<std::string()> 
 inline std::string bfClear(Tape& tape, unsigned pos, unsigned size = 1) {
     const std::string comment = strPrintf("; clear($%d %d)\n", pos, size);
     std::string str;
-    for (int i = 0; i < size; i++)
+    for (unsigned i = 0; i < size; i++)
         assert(tape.used[pos + i] && "bad access"), str += bfMove(tape, pos + i) + "[-]\n";
     return addIndent(comment + str);
 }
@@ -85,7 +85,7 @@ inline std::string bfAlloc(Tape& tape, unsigned& pos, unsigned size = 1) {
         }
         pos++;
     }
-    for (int i = 0; i < size; i++) tape.used[pos + i] = true;
+    for (unsigned i = 0; i < size; i++) tape.used[pos + i] = true;
     return bfClear(tape, pos, size);
 }
 
@@ -265,8 +265,7 @@ inline BfBinaryFunction getBfFunction(Operator op) {
             return pair.second;
         }
     }
-    eprintf("unknown operator %s!", toIrOperatorName(op));
-    return nullptr;
+    throw runtimeError("unknown operator {}!", toIrOperatorName(op));
 }
 
 inline std::string ValueIR::toBrainfuck(void* context) const {
@@ -308,7 +307,7 @@ inline std::string ValueIR::toBrainfuck(void* context) const {
             str += bfCopyCell(ctx.tape, ctx.symbol_table[content], ctx.ret);
             break;
         case Type: break;
-        default: eprintf("not implemented value type %d!", type); break;
+        default: throw runtimeError("not implemented value type {}!", (int)type); break;
     }
     return str;
 }

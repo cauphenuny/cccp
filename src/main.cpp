@@ -63,8 +63,8 @@ int main(int argc, const char* argv[]) {
     if (options["ast"]) {
         try {
             fprintf(file, "%s\n", ast->toString().c_str());
-        } catch (std::runtime_error e) {
-            cerr << "(AST error) " << e.what() << endl;
+        } catch (const std::runtime_error& e) {
+            cerr << "[AST error] " << e.what() << endl;
             return 2;
         }
     }
@@ -74,23 +74,23 @@ int main(int argc, const char* argv[]) {
     IrObject ir;
     try {
         ir = ast->toIr();
-    } catch (std::runtime_error e) {
-        cerr << "(AST error) " << e.what() << endl;
+    } catch (const std::runtime_error& e) {
+        cerr << "[AST error] " << e.what() << endl;
         return 3;
     }
     if (options["koopa"]) {
         try {
             fprintf(file, "%s\n", ir->toString().c_str());
-        } catch (std::runtime_error e) {
-            cerr << "(IR error) " << e.what() << endl;
+        } catch (const std::runtime_error& e) {
+            cerr << "[IR error] " << e.what() << endl;
             return 4;
         }
     }
     if (options["riscv"]) {
         try {
             fprintf(file, "%s\n", ir->toAssembly().c_str());
-        } catch (std::runtime_error(e)) {
-            cerr << "(ASM error) " << e.what() << endl;
+        } catch (const std::runtime_error& e) {
+            cerr << "[ASM error] " << e.what() << endl;
             return 5;
         }
     }
@@ -98,8 +98,8 @@ int main(int argc, const char* argv[]) {
         std::string bf;
         try {
             bf = ir->toBrainfuck();
-        } catch (std::runtime_error(e)) {
-            cerr << "(BF error) " << e.what() << endl;
+        } catch (const std::runtime_error& e) {
+            cerr << "[BF error] " << e.what() << endl;
             return 6;
         }
         if (options["z"]) {

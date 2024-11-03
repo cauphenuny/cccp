@@ -8,7 +8,6 @@
 #include <iostream>
 #include <map>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -88,35 +87,35 @@ inline std::array<std::pair<Operator, const char*>, 13> name_map = {  //
      {Operator::band, "and"},
      {Operator::bor, "or"}}};
 
-inline std::string toRawOperator(Operator op) {
-    for (const auto& pair : raw_map) {
-        if (pair.first == op) {
-            return pair.second;
+inline std::string toRawOperator(Operator oper) {
+    for (const auto& [op, raw]: raw_map) {
+        if (op == oper) {
+            return raw;
         }
     }
-    return "unknown";
+    throw runtimeError("unknown operator: {}", (int)oper);
 }
 
 inline std::string serialize(const Operator& op) {
     return toRawOperator(op);
 }
 
-inline const char* toIrOperatorName(Operator op) {
-    for (const auto& pair : name_map) {
-        if (pair.first == op) {
-            return pair.second;
+inline const char* toIrOperatorName(Operator oper) {
+    for (const auto& [op, name]: name_map) {
+        if (op == oper) {
+            return name;
         }
     }
-    return "unknown";
+    throw runtimeError("unknown operator: {}", (int)oper);
 }
 
 inline Operator toOperator(const std::string& str) {
-    for (const auto& pair : name_map) {
-        if (pair.second == str) {
-            return pair.first;
+    for (const auto& [op, name]: name_map) {
+        if (name == str) {
+            return op;
         }
     }
-    throw std::runtime_error("unknown operator: " + str);
+    throw runtimeError("unknown operator: {}", str);
 }
 
 class BaseIR {
@@ -172,17 +171,8 @@ public:
 
     std::string toString(void* context) const override {
         assert(context != nullptr);
-        /*
-        std::string str = content;
-        for (auto& p : params) {
-            str += ", (" + p->toString(context) + ")";
-        }
-        if (params.size()) str += "\n";
-        return str;
-        */
         auto ctx = (Context*)context;
         std::string str;
-        // std::cerr << "toString(), type = " << type << std::endl;
         switch (type) {
             case Type:
             case Integer: ctx->ret = content; break;
@@ -257,7 +247,7 @@ public:
         return str;
     }
     std::string toAssembly(void* context) const override;
-    std::string toBrainfuck(void*) const override;
+    std::string toBrainfuck(void* context) const override;
 };
 
 class FunctionIR : public BaseIR {
