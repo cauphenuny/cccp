@@ -78,7 +78,7 @@ public:
     IrObject toIr() const override {
         auto ir = std::make_unique<ValueIR>();
         if (type == "int") {
-            ir->type = ValueType::Integer;
+            ir->type = ValueType::Type;
             ir->content = "i32";
         } else {
             ir->type = ValueType::Unknown;

@@ -54,7 +54,10 @@ int main(int argc, const char* argv[]) {
     if (input == nullptr || options.empty()) return usage(argv[0]);
 
     yyin = fopen(input, "r");
-    assert(yyin);
+    if (!yyin) {
+        cerr << "no such file: " << input << endl;
+        return 1;
+    }
 
     unique_ptr<BaseAST> ast;
     auto ret = yyparse(ast);
