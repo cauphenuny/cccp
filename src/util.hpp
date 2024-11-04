@@ -48,9 +48,9 @@ inline std::string tryCompressStr(std::string_view str) {
 
 std::string serialize(const auto& val);
 
-std::string toString(const auto& begin, const auto& end) {
+template <std::input_iterator T> std::string toString(const T& begin, const T& end) {
     std::string str;
-    for (auto it = begin; it != end; it++) {
+    for (T it = begin; it != end; it++) {
         str += serialize(*it) + ",\n";
     }
     if (!str.empty()) {
@@ -79,10 +79,9 @@ std::string serialize(const auto& val) {
         return toString(val);
     } else if constexpr (requires { val->toString(); }) {
         return val->toString();
-    } else if constexpr (requires { std::to_string(val); }) {
-        return std::to_string(val);
     } else {
-        static_assert(false, "can not convert to string");
+        static_assert(requires { std::to_string(val); }, "can not convert to string");
+        return std::to_string(val);
     }
 }
 

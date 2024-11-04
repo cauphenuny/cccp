@@ -204,7 +204,7 @@ public:
 
 class UnaryExpAST : public BaseAST {
 public:
-    enum {
+    enum Type {
         Virtual,  // PrimaryExp
         Real,     // UnaryOp UnaryExp
     } type;
@@ -282,7 +282,7 @@ public:
 
 class BinaryExpAST : public BaseAST {
 public:
-    enum type_t {
+    enum Type {
         Virtual,
         Real,
     } type;
@@ -351,22 +351,23 @@ public:
 
 class StmtAST : public BaseAST {
 public:
-    enum type_t {
+    enum Type {
         Return,
         Assign,
     } type;
-    std::string toString(type_t t) { return t == Return ? "Return" : "Assign"; }
     struct AssignContainer {
         AstObject lval;
         AstObject exp;
     };
     std::variant<AstObject, AssignContainer> content;
     StmtAST(int line, int column) : BaseAST(line, column) {}
-    StmtAST(type_t type, AstObject&& _content) : BaseAST(_content->line, _content->column), type(type) {
+    StmtAST(Type type, AstObject&& _content)
+        : BaseAST(_content->line, _content->column), type(type) {
         _content->parent = this;
         content = std::move(_content);
     }
-    StmtAST(type_t type, AstObject&& _lval, AstObject&& _exp) : BaseAST(_lval->line, _lval->column), type(type) {
+    StmtAST(Type type, AstObject&& _lval, AstObject&& _exp)
+        : BaseAST(_lval->line, _lval->column), type(type) {
         _lval->parent = _exp->parent = this;
         content = AssignContainer{std::move(_lval), std::move(_exp)};
     }
@@ -401,6 +402,9 @@ public:
             }
         }
         throw runtimeError("invalid statement");
+    }
+    friend std::string toString(StmtAST::Type t) {
+        return t == StmtAST::Return ? "Return" : "Assign";
     }
 };
 
@@ -461,7 +465,12 @@ public:
     VarDefAST(int line, int column) : BaseAST(line, column) {}
     VarDefAST(std::string ident, AstObject&& init_exp)
         : BaseAST(init_exp->line, init_exp->column), ident(ident), init_exp(std::move(init_exp)) {}
-    std::string toString() const override { return serializeClass("VarDefAST", ident, init_exp); }
+    std::string toString() const override {
+        if (init_exp)
+            return serializeClass("VarDefAST", ident, init_exp);
+        else
+            return serializeClass("VarDefAST", ident);
+    }
     void writeSymbol() const {
         for (auto scope = parent; scope; scope = scope->parent) {
             auto& map = scope->symbol_table;
@@ -485,7 +494,7 @@ public:
         auto inst1 = std::make_unique<ValueIR>(ValueType::Alloc, ident);
         inst1->params.push_back(std::make_unique<ValueIR>(ValueType::Type, "i32"));
         ir->values.push_back(std::move(inst1));
-        if (init_exp != nullptr) {
+        if (init_exp) {
             auto inst2 = std::make_unique<ValueIR>(ValueType::Store, ident);
             inst2->params.push_back(init_exp->toIr());
             ir->values.push_back(std::move(inst2));
@@ -520,18 +529,19 @@ public:
 
 class BlockItemAST : public BaseAST {
 public:
-    enum type_t {
+    enum Type {
         Decl,
         Stmt,
     } type;
-    std::string toString(type_t t) { return t == Decl ? "Decl" : "Stmt"; }
     AstObject content;
     BlockItemAST(int line, int column) : BaseAST(line, column) {}
-    BlockItemAST(type_t type, AstObject&& _content) : BaseAST(_content->line, _content->column), type(type), content(std::move(_content)) {
+    BlockItemAST(Type type, AstObject&& _content)
+        : BaseAST(_content->line, _content->column), type(type), content(std::move(_content)) {
         content->parent = this;
     }
-    std::string toString() const override {
-        return serializeClass("BlockItemAST", type, content);
+    std::string toString() const override { return serializeClass("BlockItemAST", type, content); }
+    friend std::string toString(Type t) {
+        return t == Decl ? "Decl" : "Stmt";
     }
     IrObject toIr() const override { return content->toIr(); }
 };
