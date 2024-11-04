@@ -6,9 +6,9 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <vector>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using namespace std;
 
@@ -42,11 +42,12 @@ int main(int argc, const char* argv[]) {
                 } else {
                     return usage(argv[0]);
                 }
-            } else options.push_back(string(argv[i] + 1));
+            } else
+                options.push_back(string(argv[i] + 1));
         } else {
             if (input == nullptr) {
                 input = argv[i];
-            } else{
+            } else {
                 return usage(argv[0]);
             }
         }
@@ -71,44 +72,49 @@ int main(int argc, const char* argv[]) {
     }
     IrObject ir;
     try {
-        ir = ast->toIr();
-    } catch (const std::runtime_error& e) {
-        cerr << "[AST error] " << e.what() << endl;
-        return 2;
-    }
-    for (const auto& opt : options) {
-        if (opt == "ast") {
-            fprintf(file, "%s\n", ast->toString().c_str());
-        } else if (opt == "ir") {
-            fprintf(file, "%s\n", ir->toString().c_str());
-        } else if (opt == "koopa") {
-            try {
-                fprintf(file, "%s\n", ir->print().c_str());
-            } catch (const std::runtime_error& e) {
-                cerr << "[IR error] " << e.what() << endl;
-                return 3;
-            }
-        } else if (opt == "riscv") {
-            try {
-                fprintf(file, "%s\n", ir->printRiscV().c_str());
-            } catch (const std::runtime_error& e) {
-                cerr << "[ASM error] " << e.what() << endl;
-                return 4;
-            }
-        } else if (opt == "brain" || opt == "brainz") {
-            std::string bf;
-            try {
-                bf = ir->printBf();
-            } catch (const std::runtime_error& e) {
-                cerr << "[BF error] " << e.what() << endl;
-                return 5;
-            }
-            if (opt.back() == 'z') {
-                fprintf(file, "%s\n", bfCompress(bf).c_str());
-            } else {
-                fprintf(file, "%s\n", bf.c_str());
+        try {
+            ir = ast->toIr();
+        } catch (const std::logic_error& e) {
+            cerr << "[AST error] " << e.what() << endl;
+            return 2;
+        }
+        for (const auto& opt : options) {
+            if (opt == "ast") {
+                fprintf(file, "%s\n", ast->toString().c_str());
+            } else if (opt == "ir") {
+                fprintf(file, "%s\n", ir->toString().c_str());
+            } else if (opt == "koopa") {
+                try {
+                    fprintf(file, "%s\n", ir->print().c_str());
+                } catch (const std::logic_error& e) {
+                    cerr << "[IR error] " << e.what() << endl;
+                    return 3;
+                }
+            } else if (opt == "riscv") {
+                try {
+                    fprintf(file, "%s\n", ir->printRiscV().c_str());
+                } catch (const std::logic_error& e) {
+                    cerr << "[ASM error] " << e.what() << endl;
+                    return 4;
+                }
+            } else if (opt == "brain" || opt == "brainz") {
+                std::string bf;
+                try {
+                    bf = ir->printBf();
+                } catch (const std::logic_error& e) {
+                    cerr << "[BF error] " << e.what() << endl;
+                    return 5;
+                }
+                if (opt.back() == 'z') {
+                    fprintf(file, "%s\n", bfCompress(bf).c_str());
+                } else {
+                    fprintf(file, "%s\n", bf.c_str());
+                }
             }
         }
+    } catch (const std::runtime_error& e) {
+        cerr << "[compiler error] " << e.what() << endl;
+        return 6;
     }
     return 0;
 }

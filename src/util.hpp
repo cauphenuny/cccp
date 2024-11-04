@@ -101,17 +101,20 @@ std::string serializeVar(const char* names, const auto& var, const auto&... rest
 #define serializeClass(name, ...) \
     tryCompressStr(name " {\n" + addIndent(serializeVar(#__VA_ARGS__, __VA_ARGS__)) + "}")
 
-inline std::string formatLocation(std::source_location location = std::source_location::current()) {
+inline std::string getLocation(std::source_location location = std::source_location::current()) {
     return std::format("{}:{} `{}`",
                        std::filesystem::path(location.file_name()).filename().string(),
                        location.line(), location.function_name());
 }
 
-inline auto generateError(std::string_view location, const char* fmt, auto&&... args) {
-    return std::runtime_error(
-        std::format("{} ({})", std::vformat(fmt, std::make_format_args(args...)), location));
+inline auto addLocation(std::string_view location, const char* fmt, auto&&... args) {
+    return std::format("{} ({})", std::vformat(fmt, std::make_format_args(args...)), location);
 }
 
-#define runtimeError(...) generateError(formatLocation(), __VA_ARGS__)
+#define compileError(fmt, ...) \
+    std::logic_error(std::format(fmt " ({})" __VA_OPT__(,) __VA_ARGS__, getLocation()))
+
+#define runtimeError(fmt, ...) \
+    std::runtime_error(std::format(fmt " ({})" __VA_OPT__(,) __VA_ARGS__, getLocation()))
 
 #endif

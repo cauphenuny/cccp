@@ -417,13 +417,13 @@ public:
         : BaseAST(init_exp->line, init_exp->column), ident(ident), init_exp(std::move(init_exp)) {}
     void writeSymbol() const {
         if (!init_exp->isConstexpr()) {
-            throw runtimeError("{}:{}: initializer is not a constant expression", line, column);
+            throw compileError("{}:{}: initializer is not a constant expression", line, column);
         }
         for (auto scope = parent; scope; scope = scope->parent) {
             auto& map = scope->symbol_table;
             if (map) {
                 if (map->find(ident) != map->end())
-                    throw runtimeError("{}:{}: redefined variable: {}", line, column, ident);
+                    throw compileError("{}:{}: redefined variable: {}", line, column, ident);
                 (*map)[ident] = init_exp->calc();
                 return;
             }
@@ -432,7 +432,7 @@ public:
         for (const BaseAST* ancestor = this; ancestor; ancestor = ancestor->parent) {
             trace += "---------------\n" + ancestor->toString() + "\n";
         }
-        throw runtimeError("{}:{}: no available scope for variable {}\nback trace:\n{}", line,
+        throw compileError("{}:{}: no available scope for variable {}\nback trace:\n{}", line,
                            column, ident, trace);
     }
     std::string toString() const override { return serializeClass("ConstDefAST", ident, init_exp); }
@@ -476,7 +476,7 @@ public:
             auto& map = scope->symbol_table;
             if (map) {
                 if (map->find(ident) != map->end())
-                    throw runtimeError("{}:{}: redefined variable: {}", line, column, ident);
+                    throw compileError("{}:{}: redefined variable: {}", line, column, ident);
                 (*map)[ident] = init_exp.get();
                 return;
             }
@@ -485,7 +485,7 @@ public:
         for (const BaseAST* ancestor = this; ancestor; ancestor = ancestor->parent) {
             trace += "---------------\n" + ancestor->toString() + "\n";
         }
-        throw runtimeError("{}:{}: no available scope for variable {}\nback trace:\n{}", line,
+        throw compileError("{}:{}: no available scope for variable {}\nback trace:\n{}", line,
                            column, ident, trace);
     }
     IrObject toIr() const override {
