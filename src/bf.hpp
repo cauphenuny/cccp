@@ -43,7 +43,7 @@ inline std::string strPrintf(const char* format, ...) {
 /// @brief move cell pointer to the given position
 inline std::string bfMove(Tape& tape, unsigned pos) {
     if (pos == tape.current_pos) return "";
-    const std::string comment = strPrintf("; goto $%d\n", pos);
+    const std::string comment = strPrintf("; goto #%d\n", pos);
     std::string str;
     if (tape.current_pos < pos)
         str = repeat(">", pos - tape.current_pos);
@@ -56,7 +56,7 @@ inline std::string bfMove(Tape& tape, unsigned pos) {
 /// @brief do {func} for @{pos} times, take the ownership of cell ${pos}
 inline std::string bfFor(Tape& tape, unsigned pos, std::function<std::string()> func) {
     assert(tape.used[pos] && "bad access");
-    const std::string comment = strPrintf("; for($%d)\n", pos);
+    const std::string comment = strPrintf("; do for $%d times\n", pos);
     std::string str;
     str += bfMove(tape, pos);
     str += "[\n";
@@ -68,7 +68,7 @@ inline std::string bfFor(Tape& tape, unsigned pos, std::function<std::string()> 
 
 /// @brief clear cell ${pos:size}
 inline std::string bfClear(Tape& tape, unsigned pos, unsigned size = 1) {
-    const std::string comment = strPrintf("; clear($%d %d)\n", pos, size);
+    const std::string comment = strPrintf("; clear(#%d %d)\n", pos, size);
     std::string str;
     for (unsigned i = 0; i < size; i++)
         assert(tape.used[pos + i] && "bad access"), str += bfMove(tape, pos + i) + "[-]\n";
@@ -93,16 +93,16 @@ inline std::string bfMoveCell(Tape& tape, unsigned src, unsigned dest, int sign 
     assert(tape.used[src] && "bad access");
     assert(tape.used[dest] && "bad access");
     if (src == dest) return "";
-    const std::string comment = strPrintf("; move($%d): $%d\n", src, dest);
+    const std::string comment = strPrintf("; move(#%d): #%d\n", src, dest);
     std::string str, ch = sign > 0 ? "+" : "-";
     str += bfFor(tape, src, [&] { return bfMove(tape, dest) + ch + "\n"; });
     return comment + addIndent(str);
 }
 
 inline std::string bfCopyCell(Tape& tape, unsigned src, std::vector<unsigned> dest, int sign) {
-    std::string comment = strPrintf("; copy($%d): ", src);
+    std::string comment = strPrintf("; copy(#%d): ", src);
     for (auto d : dest) {
-        comment += strPrintf("$%d ", d);
+        comment += strPrintf("#%d ", d);
         assert(tape.used[d] && "bad access");
     }
     comment += "\n";
@@ -134,7 +134,7 @@ inline std::string bfCopyCell(Tape& tape, unsigned src, unsigned dest, int sign 
 
 inline std::string bfAdd(Tape& tape, unsigned x, unsigned y, unsigned ret) {
     assert(tape.used[x] && tape.used[y] && tape.used[ret] && "bad access");
-    const std::string comment = strPrintf("; add($%d $%d): $%d\n", x, y, ret);
+    const std::string comment = strPrintf("; add($%d $%d): #%d\n", x, y, ret);
     std::string str;
     str += bfMoveCell(tape, x, ret, 1);
     str += bfMoveCell(tape, y, ret, 1);
@@ -143,7 +143,7 @@ inline std::string bfAdd(Tape& tape, unsigned x, unsigned y, unsigned ret) {
 
 inline std::string bfSub(Tape& tape, unsigned x, unsigned y, unsigned ret) {
     assert(tape.used[x] && tape.used[y] && tape.used[ret] && "bad access");
-    const std::string comment = strPrintf("; sub($%d $%d): $%d\n", x, y, ret);
+    const std::string comment = strPrintf("; sub($%d $%d): #%d\n", x, y, ret);
     std::string str = bfMoveCell(tape, x, ret, 1);
     str += bfMoveCell(tape, y, ret, -1);
     return comment + addIndent(str);
@@ -151,7 +151,7 @@ inline std::string bfSub(Tape& tape, unsigned x, unsigned y, unsigned ret) {
 
 inline std::string bfMul(Tape& tape, unsigned x, unsigned y, unsigned ret) {
     assert(tape.used[x] && tape.used[y] && tape.used[ret] && "bad access");
-    const std::string comment = strPrintf("; mul($%d $%d): $%d\n", x, y, ret);
+    const std::string comment = strPrintf("; mul($%d $%d): #%d\n", x, y, ret);
     std::string str;
     str += bfFor(tape, x, [&] { return bfCopyCell(tape, y, ret, 1); });
     bfFree(tape, y);
@@ -160,14 +160,14 @@ inline std::string bfMul(Tape& tape, unsigned x, unsigned y, unsigned ret) {
 
 inline std::string bfDiv(Tape& tape, unsigned x, unsigned y, unsigned ret) {
     assert(tape.used[x] && tape.used[y] && tape.used[ret] && "bad access");
-    const std::string comment = strPrintf("; div($%d $%d): $%d\n", x, y, ret);
+    const std::string comment = strPrintf("; div($%d $%d): #%d\n", x, y, ret);
     const std::string str;
     return comment + addIndent(str);
 }
 
 inline std::string bfBool(Tape& tape, unsigned x, unsigned ret) {
     assert(tape.used[x] && tape.used[ret] && "bad access");
-    const std::string comment = strPrintf("; bool($%d): $%d\n", x, ret);
+    const std::string comment = strPrintf("; bool($%d): #%d\n", x, ret);
     std::string str;
     str += bfMove(tape, x);
     str += "[\n" + bfClear(tape, x) + bfMove(tape, ret) + "+\n" + bfMove(tape, x) + "]\n";
@@ -176,7 +176,7 @@ inline std::string bfBool(Tape& tape, unsigned x, unsigned ret) {
 
 inline std::string bfOr(Tape& tape, unsigned x, unsigned y, unsigned ret) {
     assert(tape.used[x] && tape.used[y] && tape.used[ret] && "bad access");
-    const std::string comment = strPrintf("; or($%d $%d): $%d\n", x, y, ret);
+    const std::string comment = strPrintf("; or($%d $%d): #%d\n", x, y, ret);
     std::string str;
     str += bfMove(tape, x);
     str += "[-\n" + bfClear(tape, y) + bfMove(tape, y) + "+\n" + bfMove(tape, x) + "]\n";
@@ -186,7 +186,7 @@ inline std::string bfOr(Tape& tape, unsigned x, unsigned y, unsigned ret) {
 
 inline std::string bfEqual(Tape& tape, unsigned x, unsigned y, unsigned ret) {
     assert(tape.used[x] && tape.used[y] && tape.used[ret] && "bad access");
-    const std::string comment = strPrintf("; equal($%d $%d): $%d\n", x, y, ret);
+    const std::string comment = strPrintf("; equal($%d $%d): #%d\n", x, y, ret);
     std::string str;
     str += bfMove(tape, x);
     str += "[-\n" + bfMove(tape, y) + "-\n" + bfMove(tape, x) + "]+\n" + bfMove(tape, y);
@@ -198,7 +198,7 @@ inline std::string bfEqual(Tape& tape, unsigned x, unsigned y, unsigned ret) {
 
 inline std::string bfNot(Tape& tape, unsigned x, unsigned ret) {
     assert(tape.used[x] && tape.used[ret] && "bad access");
-    const std::string comment = strPrintf("; not($%d): $%d\n", x, ret);
+    const std::string comment = strPrintf("; not($%d): #%d\n", x, ret);
     unsigned tmp;
     std::string str;
     str += bfAlloc(tape, tmp) + bfMove(tape, x) + "-\n[\n" + bfMove(tape, tmp) + "-\n" +
@@ -211,7 +211,7 @@ inline std::string bfNot(Tape& tape, unsigned x, unsigned ret) {
 
 inline std::string bfNeq(Tape& tape, unsigned x, unsigned y, unsigned ret) {
     assert(tape.used[x] && tape.used[y] && tape.used[ret] && "bad access");
-    const std::string comment = strPrintf("; equal($%d $%d): $%d\n", x, y, ret);
+    const std::string comment = strPrintf("; equal($%d $%d): #%d\n", x, y, ret);
     std::string str;
     unsigned tmp;
     str += bfAlloc(tape, tmp);
@@ -225,11 +225,11 @@ inline std::string bfInteger(Tape& tape, unsigned& pos, int value) {
     std::string str;
     if (!value || value == 1 || value == -1) {
         str += bfAlloc(tape, pos);
-        comment = strPrintf("; int(%d): $%d\n", value, pos);
+        comment = strPrintf("; int(%d): #%d\n", value, pos);
         if (value) str += bfMove(tape, pos) + (value > 0 ? "+" : "-");
     } else {
         str += bfAlloc(tape, pos, 2);
-        comment = strPrintf("; int(%d): $%d\n", (uint8_t)value, pos);
+        comment = strPrintf("; int(%d): #%d\n", (uint8_t)value, pos);
         const std::string ch = value > 0 ? "+" : "-";
         value = value > 0 ? value : -value;
         int factor1, factor2;
