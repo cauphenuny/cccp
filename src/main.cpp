@@ -75,7 +75,7 @@ int main(int argc, const char* argv[]) {
         try {
             ir = ast->toIr();
         } catch (const std::logic_error& e) {
-            cerr << "[AST error] " << e.what() << endl;
+            cerr << "[AST error]\n" << e.what() << endl;
             return 2;
         }
         for (const auto& opt : options) {
@@ -87,14 +87,14 @@ int main(int argc, const char* argv[]) {
                 try {
                     fprintf(file, "%s\n", ir->print().c_str());
                 } catch (const std::logic_error& e) {
-                    cerr << "[IR error] " << e.what() << endl;
+                    cerr << "[IR error]\n" << e.what() << endl;
                     return 3;
                 }
             } else if (opt == "riscv") {
                 try {
                     fprintf(file, "%s\n", ir->printRiscV().c_str());
                 } catch (const std::logic_error& e) {
-                    cerr << "[ASM error] " << e.what() << endl;
+                    cerr << "[ASM error]\n" << e.what() << endl;
                     return 4;
                 }
             } else if (opt == "brain" || opt == "brainz") {
@@ -102,7 +102,7 @@ int main(int argc, const char* argv[]) {
                 try {
                     bf = ir->printBf();
                 } catch (const std::logic_error& e) {
-                    cerr << "[BF error] " << e.what() << endl;
+                    cerr << "[BF error]\n" << e.what() << endl;
                     return 5;
                 }
                 if (opt.back() == 'z') {
@@ -113,7 +113,7 @@ int main(int argc, const char* argv[]) {
             }
         }
     } catch (const std::runtime_error& e) {
-        cerr << "[compiler error] " << e.what() << endl;
+        cerr << "[compiler error]\n" << e.what() << endl;
         return 6;
     }
     return 0;

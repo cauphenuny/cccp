@@ -61,7 +61,7 @@ inline std::string ValueIR::printRiscV(void* context) const {
                 case Operator::bor:
                     str += content + "\t" + pos + ", " + op1 + ", " + op2 + "\n";
                     break;
-                default: runtimeError("not implemented binary operator {}!", content);
+                default: throw runtimeError("not implemented binary operator {}!", content);
             }
             break;
         }
@@ -73,7 +73,7 @@ inline std::string ValueIR::printRiscV(void* context) const {
                 str += "li\t" + ctx->ret + ", " + content + "\n";
             }
             break;
-        default: runtimeError("not implemented value type {}!", (int)type); break;
+        default: throw runtimeError("not implemented value type {}!", serialize(type)); break;
     }
     return str;
 }

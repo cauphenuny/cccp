@@ -209,8 +209,7 @@ public:
                 str += "ret " + ctx->ret + "\n";
                 break;
             default:
-                std::cerr << "not implemented value type " + std::to_string(type) + " !"
-                          << std::endl;
+                throw runtimeError("not implemented value type {}!", serialize(type));
         }
         return str;
     }

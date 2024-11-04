@@ -79,9 +79,10 @@ std::string serialize(const auto& val) {
         return toString(val);
     } else if constexpr (requires { val->toString(); }) {
         return val->toString();
-    } else {
-        static_assert(requires { std::to_string(val); }, "can not convert to string");
+    } else if constexpr (requires { std::to_string(val); }){
         return std::to_string(val);
+    } else {
+        static_assert(false, "can not convert to string");
     }
 }
 
@@ -107,14 +108,13 @@ inline std::string getLocation(std::source_location location = std::source_locat
                        location.line(), location.function_name());
 }
 
-inline auto addLocation(std::string_view location, const char* fmt, auto&&... args) {
-    return std::format("{} ({})", std::vformat(fmt, std::make_format_args(args...)), location);
-}
+#define addLocation(fmt, ...) \
+    "{}:\n    " fmt, getLocation() __VA_OPT__(, ) __VA_ARGS__
 
-#define compileError(fmt, ...) \
-    std::logic_error(std::format(fmt " ({})" __VA_OPT__(,) __VA_ARGS__, getLocation()))
+#define runtimeError(...) \
+    std::runtime_error(std::format(addLocation(__VA_ARGS__)))
 
-#define runtimeError(fmt, ...) \
-    std::runtime_error(std::format(fmt " ({})" __VA_OPT__(,) __VA_ARGS__, getLocation()))
+#define compileError(...) \
+    std::logic_error(std::format(addLocation(__VA_ARGS__)))
 
 #endif
