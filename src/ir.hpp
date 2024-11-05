@@ -279,6 +279,7 @@ public:
         }
         return str;
     }
+    void add(IrObject&& value) { if (value) values.emplace_back(std::move(value)); }
     std::string printRiscV(RiscvContext*) const override;
     std::string printBf(BfContext*) const override;
     int stackSize() const override {
@@ -312,6 +313,7 @@ public:
     }
     std::string printRiscV(RiscvContext* context) const override;
     std::string printBf(BfContext* context) const override;
+    void add(IrObject&& inst) {if (inst) insts.emplace_back(std::move(inst));}
     int stackSize() const override {
         int size = 0;
         for (const auto& inst : insts) {

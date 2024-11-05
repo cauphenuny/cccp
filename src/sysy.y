@@ -89,7 +89,9 @@ FuncType      ::= "int";
 Block         ::= "{" {BlockItem} "}";
 BlockItem     ::= Decl | Stmt;
 Stmt          ::= LVal "=" Exp ";"
-                | "return" Exp ";";
+                | [Exp] ";"
+                | Block
+                | "return" [Exp] ";";
 
 Exp           ::= LOrExp;
 LVal          ::= IDENT;
@@ -112,6 +114,7 @@ CompUnit
     auto comp_unit = new CompUnitAST($1->line, $1->column);
     comp_unit->func_def = unique_ptr<BaseAST>($1);
     comp_unit->func_def->parent = comp_unit;
+    comp_unit->init();
     ast = unique_ptr<CompUnitAST>(comp_unit);
   }
   ;
@@ -165,17 +168,23 @@ Block
   ;
 
 Stmt
-  : RETURN Exp ';' {
-    auto ast = new StmtAST(StmtAST::Return, AstObject($2));
-    ast->line = $2->line;
-    ast->column = $2->column;
-    $$ = ast;
+  : ';' {
+    $$ = new StmtAST(yylineno, yycolumn, StmtAST::Expr, nullptr);
+  }
+  | Exp ';' {
+    $$ = new StmtAST(yylineno, yycolumn, StmtAST::Expr, AstObject($1));
+  }
+  | RETURN ';' {
+    $$ = new StmtAST(yylineno, yycolumn, StmtAST::Return, nullptr);
+  }
+  | RETURN Exp ';' {
+    $$ = new StmtAST(yylineno, yycolumn, StmtAST::Return, AstObject($2));
   }
   | LVal '=' Exp ';' {
-    auto ast = new StmtAST(StmtAST::Assign, AstObject($1), AstObject($3));
-    ast->line = $1->line;
-    ast->column = $1->column;
-    $$ = ast;
+    $$ = new StmtAST(yylineno, yycolumn, StmtAST::Assign, AstObject($1), AstObject($3));
+  }
+  | Block {
+    $$ = new StmtAST(yylineno, yycolumn, StmtAST::Block, AstObject($1));
   }
   ;
 
