@@ -6,17 +6,18 @@
 
 #include <cmath>
 #include <format>
+#include <iostream>
 #include <string>
 
-class Context {
+class BaseIR::RiscvContext {
 public:
-    static const int REG_SIZE = 7;
+    static constexpr int REG_SIZE = 7;
     class Register {
     public:
-        Context* ctx = nullptr;
+        RiscvContext* ctx = nullptr;
         int idx = -1;
         Register() = default;
-        Register(Context* context, int index) : ctx(context), idx(index) {}
+        Register(RiscvContext* context, int index) : ctx(context), idx(index) {}
         ~Register() {
             if (ctx) ctx->freeRegister(*this);
             ctx = nullptr;
@@ -29,9 +30,9 @@ public:
     using RegisterPtr = std::unique_ptr<Register>;
     enum { REG, STACK, INT };
     struct {
-        int type;
+        int type = 0;
         RegisterPtr reg_val;
-        int int_val;
+        int int_val = 0;
     } ret;
     std::map<std::string, int> symbol_table;
     RegisterPtr newRegister() {
@@ -42,13 +43,13 @@ public:
                 break;
             }
         if (idx == -1) throw runtimeError("no available register");
-        _reg_used[idx] = 1;
+        _reg_used[idx] = true;
         return std::make_unique<Register>(this, idx);
     }
     void freeRegister(const Register& reg) {
         debugLog("free {}", reg);
         if (reg.idx < 0 || reg.idx > REG_SIZE) throw runtimeError("invalid register %{}", reg.idx);
-        _reg_used[reg.idx] = 0;
+        _reg_used[reg.idx] = false;
     }
     int alloc(int size) {
         if (_stack_used + size > _stack_limit) throw runtimeError("stack overflow");
@@ -56,25 +57,25 @@ public:
         _stack_used += size;
         return cur;
     }
-    void allocVariable(std::string name) {
+    void allocVariable(const std::string& name) {
         int pos = alloc(4);
         symbol_table[name] = pos;
     }
     int getVariable(std::string name) {
-        if (symbol_table.find(name) == symbol_table.end())
+        if (!symbol_table.contains(name))
             throw runtimeError("undefined variable {}", name);
         debugLog("got {}: {}", name, symbol_table[name]);
         return symbol_table[name];
     }
-    Context(int limit) : _stack_limit(limit) {}
+    explicit RiscvContext(int limit) : _stack_limit(limit) {}
 
 private:
-    bool _reg_used[REG_SIZE] = {0};
+    bool _reg_used[REG_SIZE] = {false};
     int _stack_used = 0;
     int _stack_limit;
 };
 
-inline std::string ValueIR::printRiscV(void* context) const {
+inline std::string ValueIR::printRiscV(RiscvContext* context) const {
     debugLog("{}", serializeClass("ValueIR", inst, content, params));
 #ifdef DEBUG
     auto format = [&](const char* fmt, const auto&... args) {
@@ -85,23 +86,23 @@ inline std::string ValueIR::printRiscV(void* context) const {
 #else
     using std::format;
 #endif
-    using RegisterPtr = std::unique_ptr<Context::Register>;
+    using RegisterPtr = std::unique_ptr<RiscvContext::Register>;
     assert(context != nullptr);
-    auto ctx = (Context*)context;
+    auto ctx = (RiscvContext*)context;
     std::string str;
     auto write_to_reg = [&](int type, const RegisterPtr& reg, int val) {
         switch (type) {
-            case Context::STACK: str += format("lw\t{}, {}(sp)\n", reg, val); break;
-            case Context::INT: str += format("li\t{}, {}\n", reg, val); break;
+            case RiscvContext::STACK: str += format("lw\t{}, {}(sp)\n", reg, val); break;
+            case RiscvContext::INT: str += format("li\t{}, {}\n", reg, val); break;
             default: break;
         }
     };
     auto return_to_stack = [&](RegisterPtr&& reg, int pos) {
         str += format("sw\t{}, {}(sp)\n", reg, pos);
-        ctx->ret = {Context::STACK, nullptr, pos};
+        ctx->ret = {RiscvContext::STACK, nullptr, pos};
     };
-    std::vector<decltype(Context::ret)> rets;
-    for (auto& param : params) {
+    std::vector<decltype(RiscvContext::ret)> rets;
+    for (const auto& param : params) {
         str += param->printRiscV(context);
         rets.push_back(std::move(ctx->ret));
     }
@@ -109,8 +110,8 @@ inline std::string ValueIR::printRiscV(void* context) const {
         case Inst::Return: {
             auto& [type, reg, int_val] = rets[0];
             switch (type) {
-                case Context::STACK: str += format("lw\ta0, {}(sp)\n", int_val); break;
-                case Context::REG: str += format("mv\ta0, {}\n", reg); break;
+                case RiscvContext::STACK: str += format("lw\ta0, {}(sp)\n", int_val); break;
+                case RiscvContext::REG: str += format("mv\ta0, {}\n", reg); break;
                 default: str += format("li\ta0, {}\n", int_val);
             }
             break;
@@ -118,13 +119,12 @@ inline std::string ValueIR::printRiscV(void* context) const {
         case Inst::Binary: {
             auto& [type0, left, int_val0] = rets[0];
             auto& [type1, right, int_val1] = rets[1];
-            if (type0 != Context::REG)
+            if (type0 != RiscvContext::REG)
                 left = ctx->newRegister(), write_to_reg(type0, left, int_val0);
-            if (type1 != Context::REG)
+            if (type1 != RiscvContext::REG)
                 right = ctx->newRegister(), write_to_reg(type1, right, int_val1);
             auto res = ctx->newRegister();
-            auto op = toOperator(content);
-            switch (op) {
+            switch (toOperator(content)) {
                 case Operator::gt: str += format("sgt\t{}, {}, {}\n", res, left, right); break;
                 case Operator::lt: str += format("slt\t{}, {}, {}\n", res, left, right); break;
                 case Operator::geq:
@@ -158,29 +158,29 @@ inline std::string ValueIR::printRiscV(void* context) const {
             return_to_stack(std::move(res), ctx->alloc(4));
             break;
         }
-        case Inst::Load: ctx->ret = {Context::STACK, nullptr, ctx->getVariable(content)}; break;
+        case Inst::Load: ctx->ret = {RiscvContext::STACK, nullptr, ctx->getVariable(content)}; break;
         case Inst::Alloc: ctx->allocVariable(content); break;
         case Inst::Store: {
             auto& [type, reg, int_val] = rets[0];
-            if (type != Context::REG) reg = ctx->newRegister(), write_to_reg(type, reg, int_val);
+            if (type != RiscvContext::REG) reg = ctx->newRegister(), write_to_reg(type, reg, int_val);
             return_to_stack(std::move(reg), ctx->getVariable(content));
             break;
         }
-        case Inst::Integer: ctx->ret = {Context::INT, nullptr, std::stoi(content)}; break;
-        default: throw runtimeError("not implemented value type {}!", serialize(inst)); break;
+        case Inst::Integer: ctx->ret = {RiscvContext::INT, nullptr, std::stoi(content)}; break;
+        default: throw runtimeError("not implemented value type {}!", serialize(inst));
     }
     return str;
 }
 
-inline std::string MultiValueIR::printRiscV(void* context) const {
+inline std::string MultiValueIR::printRiscV(RiscvContext* context) const {
     std::string str;
-    for (auto& value : values) {
+    for (const auto& value : values) {
         str += value->printRiscV(context);
     }
     return str;
 }
 
-inline std::string BasicBlockIR::printRiscV(void* context) const {
+inline std::string BasicBlockIR::printRiscV(RiscvContext* context) const {
     assert(context != nullptr);
     std::string str;
     for (const auto& inst : insts) {
@@ -189,14 +189,14 @@ inline std::string BasicBlockIR::printRiscV(void* context) const {
     return str;
 }
 
-inline std::string FunctionIR::printRiscV(void*) const {
+inline std::string FunctionIR::printRiscV(RiscvContext*) const {
     std::string str = name + ":\n";
     std::string content_str;
     int size = stackSize();
     debugLog("stack size: {}", size);
-    Context ctx(size);
-    size = std::ceil(size / 16.0) * 16;
-    Context::RegisterPtr size_reg;
+    RiscvContext ctx(size);
+    size = (int)(std::ceil(size / 16.0) * 16);
+    RiscvContext::RegisterPtr size_reg;
     if (size < (1 << 12)) {
         content_str += std::format("addi\tsp, sp, -{}\n", size);
     } else {
@@ -216,12 +216,11 @@ inline std::string FunctionIR::printRiscV(void*) const {
     str += addIndent(content_str);
     return str;
 }
-inline std::string ProgramIR::printRiscV(void*) const {
+inline std::string ProgramIR::printRiscV(RiscvContext*) const {
     std::string str;
     str += "  .text\n";
     for (const auto& obj : funcs) {
-        auto func = static_cast<FunctionIR*>(obj.get());
-        if (func) {
+        if (const auto func = dynamic_cast<FunctionIR*>(obj.get())) {
             str += "  .globl " + func->name + "\n";
         }
     }

@@ -5,9 +5,7 @@
 
 #include <cassert>
 #include <functional>
-#include <iostream>
 #include <map>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -55,7 +53,7 @@ given parameter
     example: for a unary expression `!a`, the function should be `function_map[(size_t)no](0, a)`
 */
 
-template <typename T> const std::function<T(T, T)> getFunction(Operator op) {
+template <typename T> std::function<T(T, T)> getFunction(Operator op) {
     return function_map<T>[(size_t)op];
 }
 
@@ -148,7 +146,7 @@ public:
     };
     Tag tag;
     std::variant<std::monostate, ArrayData, PointerData, FunctionData> data;
-    IrType(Tag t) : tag(t) {}
+    explicit IrType(Tag t) : tag(t) {}
     std::string toString() const {
         switch (tag) {
             case Tag::Unit: return "unit";
@@ -164,7 +162,7 @@ public:
             case Tag::Function: {
                 auto& [ret, args] = std::get<FunctionData>(data);
                 std::string args_str;
-                for (auto& arg : args) {
+                for (const auto& arg : args) {
                     if (!args_str.empty()) args_str += ", ";
                     args_str += arg->toString();
                 }
@@ -181,21 +179,20 @@ public:
     BaseIR() { type = std::make_unique<IrType>(IrType::Tag::Unit); }
     virtual ~BaseIR() = default;
     virtual std::string toString() const = 0;
-    virtual std::string print(void* context = nullptr) const = 0;
-    virtual std::string printRiscV(void* context = nullptr) const = 0;
-    virtual std::string printBf(void* context = nullptr) const = 0;
+    struct IrContext;
+    virtual std::string print(IrContext* context = nullptr) const = 0;
+    class RiscvContext;
+    virtual std::string printRiscV(RiscvContext* context = nullptr) const = 0;
+    struct BfContext;
+    virtual std::string printBf(BfContext* context = nullptr) const = 0;
     virtual int stackSize() const {
         throw runtimeError("can not calculate stack size for {}", typeid(*this).name());
-    }
-    friend std::ostream& operator<<(std::ostream& os, const BaseIR& ir) {
-        os << ir.print();
-        return os;
     }
 };
 
 using IrObject = std::unique_ptr<BaseIR>;
 
-struct IrContext {
+struct BaseIR::IrContext {
     std::string ret;
     int cnt;
 };
@@ -207,18 +204,18 @@ public:
     std::string comment;
     std::vector<IrObject> params;
     ValueIR() = delete;
-    ValueIR(Inst inst) : inst(inst) { setType(); }
-    ValueIR(Inst inst, std::string_view str) : inst(inst), content(str) { setType(); }
+    explicit ValueIR(Inst inst) : inst(inst) { setType(); }
+    ValueIR(Inst inst, const std::string& str) : inst(inst), content(str) { setType(); }
     std::string toString() const override {
         return serializeClass("ValueIR", inst, content, params);
     }
 
-    std::string print(void* context) const override {
+    std::string print(IrContext* context) const override {
         assert(context != nullptr);
         auto ctx = (IrContext*)context;
         std::string str;
         std::vector<std::string> ret;
-        for (auto& param : params) {
+        for (const auto& param : params) {
             str += param->print(context);
             ret.push_back(ctx->ret);
         }
@@ -247,8 +244,8 @@ public:
         }
         return str;
     }
-    std::string printRiscV(void*) const override;
-    std::string printBf(void*) const override;
+    std::string printRiscV(RiscvContext*) const override;
+    std::string printBf(BfContext*) const override;
     int stackSize() const override {
         int size;
         switch (inst) {
@@ -256,7 +253,7 @@ public:
             case Inst::Alloc: size = 4; break;
             default: size = 0;
         }
-        for (auto& param : params) size += param->stackSize();
+        for (const auto& param : params) size += param->stackSize();
         return size;
     }
 
@@ -275,18 +272,18 @@ class MultiValueIR : public BaseIR {
 public:
     std::vector<IrObject> values;
     std::string toString() const override { return serializeClass("MultiValueIR", values); }
-    std::string print(void* context) const override {
+    std::string print(IrContext* context) const override {
         std::string str;
-        for (auto& value : values) {
+        for (const auto& value : values) {
             str += value->print(context);
         }
         return str;
     }
-    std::string printRiscV(void*) const override;
-    std::string printBf(void*) const override;
+    std::string printRiscV(RiscvContext*) const override;
+    std::string printBf(BfContext*) const override;
     int stackSize() const override {
         int size = 0;
-        for (auto& value : values) {
+        for (const auto& value : values) {
             size += value->stackSize();
         }
         return size;
@@ -303,21 +300,21 @@ public:
     std::string toString() const override {
         return serializeClass("BasicBlockIR", type, entrance, symbol_map, insts);
     }
-    std::string print(void* context) const override {
+    std::string print(IrContext* context) const override {
         assert(context != nullptr);
         std::string str = "%" + entrance + ":\n";
-        std::string insts_str = "";
+        std::string insts_str;
         for (const auto& inst : insts) {
             insts_str += inst->print(context);
         }
         str += addIndent(insts_str);
         return str;
     }
-    std::string printRiscV(void* context) const override;
-    std::string printBf(void* context) const override;
+    std::string printRiscV(RiscvContext* context) const override;
+    std::string printBf(BfContext* context) const override;
     int stackSize() const override {
         int size = 0;
-        for (auto& inst : insts) {
+        for (const auto& inst : insts) {
             size += inst->stackSize();
         }
         return size;
@@ -328,24 +325,24 @@ class FunctionIR : public BaseIR {
 public:
     std::string name;
     std::vector<IrObject> blocks;
-    FunctionIR(std::string name) : name(name) {
+    explicit FunctionIR(const std::string& name) : name(name) {
         type = std::make_unique<IrType>(IrType::Tag::Int32);
     }
 
     std::string toString() const override { return serializeClass("FunctionIR", name, blocks); }
-    std::string print(void*) const override {
+    std::string print(IrContext*) const override {
         IrContext ctx = {"", 0};
         std::string blocks_str;
         for (const auto& block : blocks) {
             blocks_str += block->print(&ctx);
         }
-        return std::format("fun @{}: {} {{\n{}}}\n", name, type, blocks_str);
+        return std::format("fun @{}(): {} {{\n{}}}\n", name, type, blocks_str);
     }
-    std::string printRiscV(void*) const override;
-    std::string printBf(void*) const override;
+    std::string printRiscV(RiscvContext*) const override;
+    std::string printBf(BfContext*) const override;
     int stackSize() const override {
         int size = 0;
-        for (auto& block : blocks) {
+        for (const auto& block : blocks) {
             size += block->stackSize();
         }
         return size;
@@ -359,7 +356,7 @@ public:
     std::string toString() const override {
         return serializeClass("ProgramIR", global_vars, funcs);
     }
-    std::string print(void*) const override {
+    std::string print(IrContext*) const override {
         std::string str;
         // for (const auto& var : global_vars) {
         //     // TODO:
@@ -369,8 +366,8 @@ public:
         }
         return str;
     }
-    std::string printRiscV(void*) const override;
-    std::string printBf(void*) const override;
+    std::string printRiscV(RiscvContext*) const override;
+    std::string printBf(BfContext*) const override;
 };
 
 #endif

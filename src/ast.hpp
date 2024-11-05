@@ -4,9 +4,7 @@
 #include "ir.hpp"
 #include "util.hpp"
 
-#include <iostream>
 #include <map>
-#include <memory>
 #include <string>
 #include <variant>
 
@@ -20,7 +18,7 @@ class BaseAST {
 public:
     int line, column;
     std::unique_ptr<SymbolTable> symbol_table;
-    BaseAST* parent;
+    BaseAST* parent{nullptr};
     BaseAST() = delete;
     BaseAST(int line, int column) : line(line), column(column) {}
     virtual ~BaseAST() = default;
@@ -32,10 +30,6 @@ public:
         throw runtimeError("{}:{}: can not calculate {}", line, column, typeid(*this).name());
     }
     virtual std::string toString() const = 0;
-    friend std::ostream& operator<<(std::ostream& os, const BaseAST& ast) {
-        os << ast.toString();
-        return os;
-    }
 };
 
 class CompUnitAST : public BaseAST {
@@ -56,6 +50,8 @@ public:
     std::string ident;
     AstObject block;
     FuncDefAST(int line, int column) : BaseAST(line, column) {}
+    FuncDefAST(const std::string& ident, AstObject&& block)
+        : BaseAST(block->line, block->column), ident(ident), block(std::move(block)) {}
     std::string toString() const override {
         return serializeClass("FuncDefAST", func_type, ident, block);
     }
@@ -89,14 +85,14 @@ public:
     }
     bool isConstExpr() const override { return true; }
     int calc() const override { return number; }
-    NumberAST(int num, int line = -1, int column = -1) : BaseAST(line, column), number(num) {}
+    explicit NumberAST(int num, int line = -1, int column = -1) : BaseAST(line, column), number(num) {}
 };
 
 class ExpAST : public BaseAST {
 public:
     AstObject exp;
     std::string toString() const override { return exp->toString(); }
-    ExpAST(AstObject&& _exp) : BaseAST(_exp->line, _exp->column), exp(std::move(_exp)) {
+    explicit ExpAST(AstObject&& _exp) : BaseAST(_exp->line, _exp->column), exp(std::move(_exp)) {
         exp->parent = this;
     }
     bool isConstExpr() const override { return exp->isConstExpr(); }
@@ -179,12 +175,12 @@ public:
     };
     std::variant<AstObject, Container> content;
     UnaryExpAST(int line, int column) : BaseAST(line, column) {}
-    UnaryExpAST(AstObject&& obj)
+    explicit UnaryExpAST(AstObject&& obj)
         : BaseAST(obj->line, obj->column), type(Virtual), content(std::move(obj)) {
         auto& virtual_exp = std::get<AstObject>(content);
         virtual_exp->parent = this;
     }
-    UnaryExpAST(Container&& cont)
+    explicit UnaryExpAST(Container&& cont)
         : BaseAST(cont.unary_exp->line, cont.unary_exp->column), type(Real),
           content(std::move(cont)) {
         auto& real_exp = std::get<Container>(content);
@@ -256,12 +252,12 @@ public:
     };
     std::variant<AstObject, Container> content;
     BinaryExpAST(int line, int column) : BaseAST(line, column) {}
-    BinaryExpAST(AstObject&& obj)
+    explicit BinaryExpAST(AstObject&& obj)
         : BaseAST(obj->line, obj->column), type(Virtual), content(std::move(obj)) {
         auto& virtual_exp = std::get<AstObject>(content);
         virtual_exp->parent = this;
     }
-    BinaryExpAST(Container&& cont)
+    explicit BinaryExpAST(Container&& cont)
         : BaseAST(cont.left->line, cont.left->column), type(Real), content(std::move(cont)) {
         auto& real_exp = std::get<Container>(content);
         real_exp.left->parent = this;
@@ -331,7 +327,7 @@ public:
     StmtAST(Type type, AstObject&& _lval, AstObject&& _exp)
         : BaseAST(_lval->line, _lval->column), type(type) {
         _lval->parent = _exp->parent = this;
-        content = AssignContainer{std::move(_lval), std::move(_exp)};
+        content = (AssignContainer){std::move(_lval), std::move(_exp)};
     }
     std::string toString() const override {
         switch (type) {
@@ -375,22 +371,21 @@ public:
     std::string ident;
     AstObject init_exp;  // NumberAST
     ConstDefAST(int line, int column) : BaseAST(line, column) {}
-    ConstDefAST(std::string ident, AstObject&& init_exp)
+    ConstDefAST(const std::string& ident, AstObject&& init_exp)
         : BaseAST(init_exp->line, init_exp->column), ident(ident), init_exp(std::move(init_exp)) {}
     void writeSymbol() const {
         if (!init_exp->isConstExpr()) {
             throw compileError("{}:{}: initializer is not a constant expression", line, column);
         }
         for (auto scope = parent; scope; scope = scope->parent) {
-            auto& map = scope->symbol_table;
-            if (map) {
+            if (auto& map = scope->symbol_table) {
                 if (map->find(ident) != map->end())
                     throw compileError("{}:{}: redefined variable: {}", line, column, ident);
                 (*map)[ident] = init_exp->calc();
                 return;
             }
         }
-        std::string trace = "";
+        std::string trace;
         for (const BaseAST* ancestor = this; ancestor; ancestor = ancestor->parent) {
             trace += "---------------\n" + ancestor->toString() + "\n";
         }
@@ -413,7 +408,7 @@ public:
         return serializeClass("ConstDeclAST", type, const_defs);
     }
     IrObject toIR() const override {
-        for (auto& const_def : const_defs) {
+        for (const auto& const_def : const_defs) {
             const_def->toIR();
         }
         return nullptr;
@@ -425,7 +420,7 @@ public:
     std::string ident;
     AstObject init_exp;  // NumberAST
     VarDefAST(int line, int column) : BaseAST(line, column) {}
-    VarDefAST(std::string ident, AstObject&& init_exp)
+    VarDefAST(const std::string& ident, AstObject&& init_exp)
         : BaseAST(init_exp->line, init_exp->column), ident(ident), init_exp(std::move(init_exp)) {}
     std::string toString() const override {
         if (init_exp)
@@ -435,15 +430,14 @@ public:
     }
     void writeSymbol() const {
         for (auto scope = parent; scope; scope = scope->parent) {
-            auto& map = scope->symbol_table;
-            if (map) {
+            if (auto& map = scope->symbol_table) {
                 if (map->find(ident) != map->end())
                     throw compileError("{}:{}: redefined variable: {}", line, column, ident);
                 (*map)[ident] = init_exp.get();
                 return;
             }
         }
-        std::string trace = "";
+        std::string trace;
         for (const BaseAST* ancestor = this; ancestor; ancestor = ancestor->parent) {
             trace += "---------------\n" + ancestor->toString() + "\n";
         }
@@ -473,7 +467,7 @@ public:
     std::string toString() const override { return serializeClass("VarDeclAST", type, var_defs); }
     IrObject toIR() const override {
         auto ir = std::make_unique<MultiValueIR>();
-        for (auto& var_def : var_defs) {
+        for (const auto& var_def : var_defs) {
             ir->values.push_back(var_def->toIR());
         }
         return ir;
@@ -484,7 +478,7 @@ class DeclAST : public BaseAST {
 public:
     AstObject decl;  // ConstDeclAST or VarDeclAST
     DeclAST(int line, int column) : BaseAST(line, column) {}
-    DeclAST(AstObject&& decl) : BaseAST(decl->line, decl->column), decl(std::move(decl)) {}
+    explicit DeclAST(AstObject&& decl) : BaseAST(decl->line, decl->column), decl(std::move(decl)) {}
     std::string toString() const override { return serializeClass("DeclAST", decl); }
     IrObject toIR() const override { return decl->toIR(); }
 };
@@ -516,9 +510,8 @@ public:
     IrObject toIR() const override {
         auto ir = std::make_unique<BasicBlockIR>();
         ir->entrance = "entry";
-        for (auto& stmt : stmts) {
-            auto stmt_ir = stmt->toIR();
-            if (stmt_ir)
+        for (const auto& stmt : stmts) {
+            if (auto stmt_ir = stmt->toIR())
                 ir->insts.push_back(
                     std::move(stmt_ir));  // probably has empty IR so need to check it
         }

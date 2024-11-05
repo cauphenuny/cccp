@@ -3,22 +3,24 @@
 #include "ir.hpp"
 #include "util.hpp"
 
+#include <cstdarg>
 #include <cstdio>
 #include <map>
 #include <string>
 
 const int MAXN = 20000;
 
-struct Tape {
-    unsigned current_pos{0};
-    bool used[MAXN]{0};
-};
-
-struct BfContext {
+struct BaseIR::BfContext {
+    struct Tape {
+        unsigned current_pos{0};
+        bool used[MAXN]{0};
+    };
     Tape tape;
     std::map<std::string, int> symbol_table;
     unsigned ret;
 };
+
+using Tape = BaseIR::BfContext::Tape;
 
 inline std::string repeat(std::string str, unsigned times) {
     std::string ret_str;
@@ -261,7 +263,7 @@ inline BfBinaryFunction getBfFunction(Operator op) {
     throw runtimeError("unknown operator {}!", toIrOperatorName(op));
 }
 
-inline std::string ValueIR::printBf(void* context) const {
+inline std::string ValueIR::printBf(BfContext* context) const {
     std::string str;
     assert(context != nullptr);
     auto& ctx = *(BfContext*)(context);
@@ -304,7 +306,7 @@ inline std::string ValueIR::printBf(void* context) const {
     return str;
 }
 
-inline std::string MultiValueIR::printBf(void* context) const {
+inline std::string MultiValueIR::printBf(BfContext* context) const {
     std::string str;
     for (auto& value : values) {
         str += value->printBf(context);
@@ -312,7 +314,7 @@ inline std::string MultiValueIR::printBf(void* context) const {
     return str;
 }
 
-inline std::string BasicBlockIR::printBf(void*) const {
+inline std::string BasicBlockIR::printBf(BfContext*) const {
     std::string str;
     BfContext context;
     for (const auto& inst : insts) {
@@ -338,7 +340,7 @@ inline std::string bfCompress(std::string s) {
     return ret;
 }
 
-inline std::string FunctionIR::printBf(void*) const {
+inline std::string FunctionIR::printBf(BfContext*) const {
     std::string blocks_str;
     for (const auto& block : blocks) {
         blocks_str += block->printBf();
@@ -347,7 +349,7 @@ inline std::string FunctionIR::printBf(void*) const {
     return "; " + name + "()\n" + addIndent(blocks_str);
 }
 
-inline std::string ProgramIR::printBf(void*) const {
+inline std::string ProgramIR::printBf(BfContext*) const {
     std::string str;
     for (const auto& func : funcs) {
         str += func->printBf();

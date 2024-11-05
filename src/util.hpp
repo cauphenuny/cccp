@@ -79,7 +79,8 @@ std::string serialize(const auto& val) {
     } else if constexpr (requires { val.toString(); }) {
         return val.toString();
     } else if constexpr (requires { val->toString(); }) {
-        return val->toString();
+        if (val) return val->toString();
+        else return "nullptr";
     } else if constexpr (requires { std::to_string(val); }) {
         return std::to_string(val);
     } else {
