@@ -73,7 +73,7 @@ int main(int argc, const char* argv[]) {
     IrObject ir;
     try {
         try {
-            ir = ast->toIr();
+            ir = ast->toIR();
         } catch (const std::logic_error& e) {
             cerr << "[AST error]\n" << e.what() << endl;
             return 2;

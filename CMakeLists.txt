@@ -28,7 +28,6 @@ message(STATUS "Include directory: ${INC_DIR}")
 # find Flex/Bison
 find_package(FLEX REQUIRED)
 find_package(BISON REQUIRED)
-# 使用指定路径中的 bison
 if(APPLE)
   set(BISON_EXECUTABLE /opt/homebrew/opt/bison/bin/bison)
 endif()
@@ -62,6 +61,9 @@ set(SOURCES ${C_SOURCES} ${CXX_SOURCES} ${CC_SOURCES}
 
 # executable
 add_executable(compiler ${SOURCES})
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_compile_definitions(DEBUG)
+endif()
 set_target_properties(compiler PROPERTIES C_STANDARD 11 CXX_STANDARD 20)
 # target_link_libraries(compiler koopa pthread dl)
 target_link_libraries(compiler pthread dl)

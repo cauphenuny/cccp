@@ -265,16 +265,16 @@ inline std::string ValueIR::printBf(void* context) const {
     std::string str;
     assert(context != nullptr);
     auto& ctx = *(BfContext*)(context);
-    switch (type) {
-        case Return:
+    switch (inst) {
+        case Inst::Return:
             str += params[0]->printBf(context);
             str += bfMove(ctx.tape, ctx.ret);
             break;
-        case Integer: {
+        case Inst::Integer: {
             str = bfInteger(ctx.tape, ctx.ret, std::stoi(content));
             break;
         }
-        case Binary: {
+        case Inst::Binary: {
             str += params[0]->printBf(context);
             const unsigned op1 = ctx.ret;
             str += params[1]->printBf(context);
@@ -283,11 +283,11 @@ inline std::string ValueIR::printBf(void* context) const {
             str += getBfFunction(toOperator(content))(ctx.tape, op1, op2, ctx.ret);
             break;
         }
-        case Alloc:
+        case Inst::Alloc:
             str += bfAlloc(ctx.tape, ctx.ret);
             ctx.symbol_table[content] = ctx.ret;
             break;
-        case Store: {
+        case Inst::Store: {
             str += params[0]->printBf(context);
             const unsigned exp_pos = ctx.ret;
             const unsigned var_pos = ctx.symbol_table[content];
@@ -295,12 +295,11 @@ inline std::string ValueIR::printBf(void* context) const {
             str += bfMoveCell(ctx.tape, exp_pos, var_pos);
             break;
         }
-        case Variable:
+        case Inst::Load:
             str += bfAlloc(ctx.tape, ctx.ret);
             str += bfCopyCell(ctx.tape, ctx.symbol_table[content], ctx.ret);
             break;
-        case Type: break;
-        default: throw runtimeError("not implemented value type {}!", (int)type); break;
+        default: throw runtimeError("not implemented value type {}!", serialize(inst)); break;
     }
     return str;
 }

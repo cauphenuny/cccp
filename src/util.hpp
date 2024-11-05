@@ -2,11 +2,11 @@
 #define UTIL_HPP
 #include <cstring>
 #include <filesystem>
-#include <format>
 #include <map>
-#include <source_location>
+#include <format>
 #include <sstream>
 #include <string>
+#include <source_location>
 #include <string_view>
 #include <vector>
 
@@ -40,7 +40,7 @@ inline std::string compressStr(std::string_view str) {
 }
 
 inline std::string tryCompressStr(std::string_view str) {
-    if (str.length() < 60)
+    if (str.length() < 80)
         return compressStr(str);
     else
         return std::string(str);
@@ -60,16 +60,15 @@ template <std::input_iterator T> std::string toString(const T& begin, const T& e
 }
 
 template <typename T1, typename T2> std::string toString(const std::pair<T1, T2>& p) {
-    return tryCompressStr("{\n" + addIndent(serialize(p.first) + ",\n" + serialize(p.second)) +
-                          "}\n");
+    return std::format("{}: {}", serialize(p.first), serialize(p.second));
 }
 
 template <typename T> std::string toString(const std::vector<T>& vec) {
-    return tryCompressStr("std::vector [\n" + addIndent(toString(vec.begin(), vec.end())) + "]");
+    return tryCompressStr("[\n" + addIndent(toString(vec.begin(), vec.end())) + "]");
 }
 
 template <typename K, typename V> std::string toString(const std::map<K, V>& m) {
-    return tryCompressStr("std::map [\n" + addIndent(toString(m.begin(), m.end())) + "]");
+    return tryCompressStr("[\n" + addIndent(toString(m.begin(), m.end())) + "]");
 }
 
 std::string serialize(const auto& val) {
@@ -77,14 +76,38 @@ std::string serialize(const auto& val) {
         return "\"" + std::string(val) + "\"";
     } else if constexpr (requires { toString(val); }) {
         return toString(val);
+    } else if constexpr (requires { val.toString(); }) {
+        return val.toString();
     } else if constexpr (requires { val->toString(); }) {
         return val->toString();
-    } else if constexpr (requires { std::to_string(val); }){
+    } else if constexpr (requires { std::to_string(val); }) {
         return std::to_string(val);
     } else {
         static_assert(false, "can not convert to string");
     }
 }
+
+template <typename T>
+concept has_custom_tostring = requires(T t) {
+    { t.toString() } -> std::convertible_to<std::string>;
+} || requires(T t) {
+    { toString(t) } -> std::convertible_to<std::string>;
+};
+template <has_custom_tostring T> struct std::formatter<T> : std::formatter<std::string> {
+    auto format(const T& t, std::format_context& ctx) const {
+        return std::formatter<std::string>::format(serialize(t), ctx);
+    }
+};
+
+template <typename T> struct std::formatter<std::unique_ptr<T>> : std::formatter<std::string> {
+    auto format(const std::unique_ptr<T>& ptr, std::format_context& ctx) const {
+        if (ptr) {
+            return std::formatter<std::string>::format(serialize(ptr), ctx);
+        } else {
+            return std::formatter<std::string>::format("nullptr", ctx);
+        }
+    }
+};
 
 std::string serializeVar(const char* names, const auto& var, const auto&... rest) {
     std::ostringstream oss;
@@ -103,18 +126,36 @@ std::string serializeVar(const char* names, const auto& var, const auto&... rest
     tryCompressStr(name " {\n" + addIndent(serializeVar(#__VA_ARGS__, __VA_ARGS__)) + "}")
 
 inline std::string getLocation(std::source_location location = std::source_location::current()) {
-    return std::format("{}:{} `{}`",
-                       std::filesystem::path(location.file_name()).filename().string(),
-                       location.line(), location.function_name());
+    return std::format("{}:{} `{}`", std::filesystem::path(location.file_name()).filename().string(),
+                  location.line(), location.function_name());
 }
 
-#define addLocation(fmt, ...) \
-    "{}:\n    " fmt, getLocation() __VA_OPT__(, ) __VA_ARGS__
+#define RED      "\033[0;31m"
+#define L_RED    "\033[1;31m"
+#define GREEN    "\033[0;32m"
+#define L_GREEN  "\033[1;32m"
+#define YELLOW   "\033[0;33m"
+#define L_YELLOW "\033[1;33m"
+#define BLUE     "\033[0;34m"
+#define L_BLUE   "\033[1;34m"
+#define PURPLE   "\033[0;35m"
+#define L_PURPLE "\033[1;35m"
+#define CYAN     "\033[0;36m"
+#define L_CYAN   "\033[1;36m"
+#define DARK     "\033[2m"
+#define RESET    "\033[0m"
 
-#define runtimeError(...) \
-    std::runtime_error(std::format(addLocation(__VA_ARGS__)))
+#define addLocation(...) \
+    "{}{}:{}\n{}", DARK, getLocation(), RESET, addIndent(std::format(__VA_ARGS__), 2)
 
-#define compileError(...) \
-    std::logic_error(std::format(addLocation(__VA_ARGS__)))
+#define runtimeError(...) std::runtime_error(std::format(addLocation(__VA_ARGS__)))
+
+#define compileError(...) std::logic_error(std::format(addLocation(__VA_ARGS__)))
+
+#ifdef DEBUG
+#    define debugLog(...) std::cerr << std::format(addLocation(__VA_ARGS__))
+#else
+#    define debugLog(...) (void)0
+#endif
 
 #endif
