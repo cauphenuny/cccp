@@ -255,9 +255,9 @@ public:
     std::string toString() const override {
         return Match{content}(  //
             [](const AstObject& obj) { return obj->toString(); },
-            [](const Container& ctn) {
+            [&](const Container& ctn) {
                 auto& [left, op, right] = ctn;
-                return serializeClass("BinaryExpAST", op, left, right);
+                return serializeClass("BinaryExpAST", line, column, op, left, right);
             });
     }
     IrObject toIR() const override {
@@ -268,11 +268,39 @@ public:
                     return NumberAST(calc()).toIR();
                 } else {
                     auto& [left, op, right] = ctn;
-                    auto ir = std::make_unique<ValueIR>(Inst::Binary);
-                    ir->content = toIrOperatorName(op);
-                    ir->params.push_back(left->toIR());
-                    ir->params.push_back(right->toIR());
-                    return ir;
+                    if (op != Operator::lor && op != Operator::land) {
+                        auto ir = std::make_unique<ValueIR>(Inst::Binary);
+                        ir->content = toIrOperatorName(op);
+                        ir->params.push_back(left->toIR());
+                        ir->params.push_back(right->toIR());
+                        return ir;
+                    } else {
+                        auto ir = std::make_unique<MultiValueIR>();
+                        auto left_ir = left->toIR();
+                        auto right_ir = right->toIR();
+                        std::string short_circuit_label = std::format("right_exp_{}_{}", line, column);
+                        std::string end_label = std::format("end_exp_{}_{}", line, column);
+                        std::string result = std::format("result_{}_{}", line, column);
+                        auto new_value = [](auto&&... params) {
+                            return std::make_unique<ValueIR>(params...);
+                        };
+                        ir->add(new_value(Inst::Alloc, result));
+                        ir->add(new_value(Inst::Store, result, new_value(Inst::Integer, op == Operator::lor ? "1" : "0")));
+                        if (op == Operator::lor) {
+                            ir->add(std::make_unique<ValueIR>(Inst::Branch, "", left_ir,
+                                                              new_value(end_label),
+                                                              new_value(short_circuit_label)));
+                        } else if (op == Operator::land) {
+                            ir->add(std::make_unique<ValueIR>(Inst::Branch, "", left_ir,
+                                                              new_value(short_circuit_label),
+                                                              new_value(end_label)));
+                        }
+                        ir->add(new_value(Inst::Label, short_circuit_label));
+                        ir->add(new_value(Inst::Store, result, right->toIR()));
+                        ir->add(new_value(Inst::Label, end_label));
+                        ir->add(new_value(Inst::Load, result));
+                        return ir;
+                    }
                 }
             });
     }

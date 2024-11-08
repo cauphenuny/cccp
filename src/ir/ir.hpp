@@ -120,12 +120,12 @@ public:
     virtual ~BaseIR() = default;
     virtual std::string toString() const = 0;
     struct IrContext;
-    virtual std::string print(std::shared_ptr<IrContext> context = nullptr) const = 0;
+    virtual std::string print(std::shared_ptr<IrContext> ctx = nullptr) const = 0;
     class RiscvContext;
-    virtual std::string printRiscV(std::shared_ptr<RiscvContext> context = nullptr) const = 0;
+    virtual std::string printRiscV(std::shared_ptr<RiscvContext> ctx = nullptr) const = 0;
     struct BfContext;
     virtual std::string printBf(bool compress = false,
-                                std::shared_ptr<BfContext> context = nullptr) const = 0;
+                                std::shared_ptr<BfContext> ctx = nullptr) const = 0;
     virtual int stackSize() const {
         throw runtimeError("can not calculate stack size for {}", typeid(*this).name());
     }
@@ -232,8 +232,8 @@ public:
         }
         return str;
     }
-    std::string printRiscV(std::shared_ptr<RiscvContext> context) const override;
-    std::string printBf(bool compress, std::shared_ptr<BfContext> context) const override;
+    std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
+    std::string printBf(bool compress, std::shared_ptr<BfContext> ctx) const override;
     int stackSize() const override {
         int size;
         switch (inst) {
@@ -265,10 +265,10 @@ public:
 
     std::string toString() const override { return serializeClass("MultipleIR", values); }
 
-    std::string print(std::shared_ptr<IrContext> context) const override {
+    std::string print(std::shared_ptr<IrContext> ctx) const override {
         std::string str;
         for (const auto& value : values) {
-            str += value->print(context);
+            str += value->print(ctx);
         }
         return str;
     }
@@ -292,8 +292,8 @@ public:
         }
     }
 
-    std::string printRiscV(std::shared_ptr<RiscvContext> context) const override;
-    std::string printBf(bool compress, std::shared_ptr<BfContext> context) const override;
+    std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
+    std::string printBf(bool compress, std::shared_ptr<BfContext> ctx) const override;
 
     int stackSize() const override {
         int size = 0;
@@ -320,8 +320,8 @@ public:
         std::string blocks_str = blocks->print(ctx);
         return std::format("fun @{}(): {} {{\n{}}}\n", name, type, blocks_str);
     }
-    std::string printRiscV(std::shared_ptr<RiscvContext> context) const override;
-    std::string printBf(bool compress, std::shared_ptr<BfContext> context) const override;
+    std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
+    std::string printBf(bool compress, std::shared_ptr<BfContext> ctx) const override;
     int stackSize() const override { return blocks->stackSize(); }
 };
 
@@ -342,8 +342,8 @@ public:
         }
         return str;
     }
-    std::string printRiscV(std::shared_ptr<RiscvContext> context) const override;
-    std::string printBf(bool compress, std::shared_ptr<BfContext> context) const override;
+    std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
+    std::string printBf(bool compress, std::shared_ptr<BfContext> ctx) const override;
 };
 
 #endif

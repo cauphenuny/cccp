@@ -90,7 +90,7 @@ private:
     RegisterPtr _size_reg;
 };
 
-std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> context) const {
+std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
     debugLog("{}", serializeClass("ValueIR", inst, content, params));
 #ifdef DEBUG
     auto format = [&](const char* fmt, const auto&... args) {
@@ -102,8 +102,7 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> context) const {
     using std::format;
 #endif
     using RegisterPtr = std::unique_ptr<RiscvContext::Register>;
-    assert(context != nullptr);
-    auto ctx = context;
+    assert(ctx != nullptr);
     std::string str;
     auto write_to_reg = Visitor{
         [&](RiscvContext::Stack stack) -> RegisterPtr {
@@ -117,8 +116,8 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> context) const {
             str += format("  li\t{}, {}\n", reg, val);
             return reg;
         },
-        [&](RiscvContext::Str&& str) -> RegisterPtr {
-            throw runtimeError("can not write string \"{}\" to register", str);
+        [&](RiscvContext::Str&& s) -> RegisterPtr {
+            throw runtimeError("can not write string \"{}\" to register", s);
         },
     };
     auto return_to_stack = [&](RegisterPtr&& reg, int pos) {
@@ -127,7 +126,7 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> context) const {
     };
     std::vector<decltype(RiscvContext::ret)> rets;
     for (const auto& param : params) {
-        str += param->printRiscV(context);
+        str += param->printRiscV(ctx);
         rets.push_back(std::move(ctx->ret));
     }
     switch (inst) {
@@ -145,8 +144,8 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> context) const {
                 [&](RiscvContext::Int val) { str += format("  li a0, {}\n", val); },
                 [&](RiscvContext::Stack stack) { str += format("  lw a0, {}(sp)\n", stack); },
                 [&](RiscvContext::Reg&& reg) { str += format("  mv a0, {}\n", reg->toString()); },
-                [&](RiscvContext::Str&& str) {
-                    throw runtimeError("can not return string \"{}\"", str);
+                [&](RiscvContext::Str&& s) {
+                    throw runtimeError("can not return string \"{}\"", s);
                 });
             str += ctx->freeStack();
             str += "  ret\t\n";

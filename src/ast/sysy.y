@@ -225,8 +225,6 @@ SimpleStmt
 Exp
   : LOrExp {
     auto ast = new ExpAST(AstObject($1));
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   ;
@@ -234,20 +232,14 @@ Exp
 PrimaryExp
   : '(' Exp ')' {
     auto ast = new PrimaryExpAST(PrimaryExpAST::Exp, AstObject($2));
-    ast->line = $2->line;
-    ast->column = $2->column;
     $$ = ast;
   }
   | Number {
     auto ast = new PrimaryExpAST(PrimaryExpAST::Number, AstObject($1));
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   | LVal {
     auto ast = new PrimaryExpAST(PrimaryExpAST::LVal, AstObject($1));
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   ;
@@ -262,8 +254,6 @@ Number
 UnaryExp
   : PrimaryExp {
     auto ast = new UnaryExpAST(AstObject($1));
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   | UnaryOp UnaryExp {
@@ -271,8 +261,6 @@ UnaryExp
       .unary_op  = $1.val, 
       .unary_exp = AstObject($2)
     });
-    ast->line = $2->line;
-    ast->column = $2->column;
     $$ = ast;
   }
   ;
@@ -297,36 +285,28 @@ AddOp
 MulExp
   : UnaryExp {
     auto ast = new BinaryExpAST(AstObject($1));
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   | MulExp MulOp UnaryExp {
-    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2.val,
       .right = AstObject($3)
     });
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
 
 AddExp
   : MulExp {
     auto ast = new BinaryExpAST(AstObject($1));
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   | AddExp AddOp MulExp {
-    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2.val,
       .right = AstObject($3)
     });
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   ;
@@ -334,18 +314,14 @@ AddExp
 RelExp
   : AddExp {
     auto ast = new BinaryExpAST(AstObject($1));
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   | RelExp REL_OP AddExp {
-    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2.val,
       .right = AstObject($3)
     });
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   ;
@@ -353,18 +329,14 @@ RelExp
 EqExp
   : RelExp {
     auto ast = new BinaryExpAST(AstObject($1));
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   | EqExp EQ_OP RelExp {
-    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2.val,
       .right = AstObject($3)
     });
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   ;
@@ -372,28 +344,24 @@ EqExp
 LAndExp
   : EqExp {
     auto ast = new BinaryExpAST(AstObject($1));
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   | LAndExp LAND EqExp {
     auto ast_left = new BinaryExpAST($1->line, $1->column, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = Operator::neq,
-      .right = AstObject(new NumberAST(0, yylineno, yycolumn))
+      .right = AstObject(new NumberAST(0, $1->line, $1->column))
     });
     auto ast_right = new BinaryExpAST($3->line, $3->column, (BinaryExpAST::Container) {
       .left = AstObject($3),
       .op = Operator::neq,
-      .right = AstObject(new NumberAST(0, yylineno, yycolumn))
+      .right = AstObject(new NumberAST(0, $3->line, $3->column))
     });
-    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .left = AstObject(ast_left),
-      .op = Operator::band,
+      .op = Operator::land,
       .right = AstObject(ast_right)
     });
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   ;
@@ -401,28 +369,24 @@ LAndExp
 LOrExp
   : LAndExp {
     auto ast = new BinaryExpAST(AstObject($1));
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   | LOrExp LOR LAndExp {
     auto ast_left = new BinaryExpAST($1->line, $1->column, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = Operator::neq,
-      .right = AstObject(new NumberAST(0, yylineno, yycolumn))
+      .right = AstObject(new NumberAST(0, $1->line, $1->column))
     });
     auto ast_right = new BinaryExpAST($3->line, $3->column, (BinaryExpAST::Container) {
       .left = AstObject($3),
       .op = Operator::neq,
-      .right = AstObject(new NumberAST(0, yylineno, yycolumn))
+      .right = AstObject(new NumberAST(0, $3->line, $3->column))
     });
-    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .left = AstObject(ast_left),
-      .op = Operator::bor,
+      .op = Operator::lor,
       .right = AstObject(ast_right)
     });
-    ast->line = $1->line;
-    ast->column = $1->column;
     $$ = ast;
   }
   ;
