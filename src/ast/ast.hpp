@@ -1,7 +1,7 @@
 #ifndef AST_HPP
 #define AST_HPP
 
-#include "ir.hpp"
+#include "ir/ir.hpp"
 #include "util.hpp"
 
 #include <map>
@@ -18,7 +18,7 @@ class BaseAST {
 public:
     int line, column;
     std::unique_ptr<SymbolTable> symbol_table;
-    int block_depth{-1};
+    int scope_id{-1};
     BaseAST* parent{nullptr};
     BaseAST() = delete;
     BaseAST(int line, int column) : line(line), column(column) {}
@@ -31,44 +31,9 @@ public:
         throw runtimeError("{}:{}: can not calculate {}", line, column, typeid(*this).name());
     }
     virtual void init() {
-        if (parent) block_depth = parent->block_depth;
+        if (parent) scope_id = parent->scope_id;
     }
     virtual std::string toString() const = 0;
-};
-
-class CompUnitAST : public BaseAST {
-public:
-    AstObject func_def;
-    CompUnitAST(int line, int column) : BaseAST(line, column) {}
-    std::string toString() const override { return serializeClass("CompUnitAST", func_def); }
-    IrObject toIR() const override {
-        auto ir = std::make_unique<ProgramIR>();
-        ir->funcs.push_back(func_def->toIR());
-        return ir;
-    }
-    void init() override { func_def->init(); }
-};
-
-class FuncDefAST : public BaseAST {
-public:
-    AstObject func_type;
-    std::string ident;
-    AstObject block;
-    FuncDefAST(int line, int column) : BaseAST(line, column) {}
-    FuncDefAST(const std::string& ident, AstObject&& block)
-        : BaseAST(block->line, block->column), ident(ident), block(std::move(block)) {}
-    std::string toString() const override {
-        return serializeClass("FuncDefAST", func_type, ident, block);
-    }
-    IrObject toIR() const override {
-        auto ir = std::make_unique<FunctionIR>(ident);
-        ir->blocks.push_back(block->toIR());
-        return ir;
-    }
-    void init() override {
-        BaseAST::init();
-        block->init();
-    }
 };
 
 class FuncTypeAST : public BaseAST {
@@ -126,7 +91,7 @@ public:
         while (scope) {
             auto& map = scope->symbol_table;
             if (map && map->find(ident) != map->end()) {
-                return std::format("{}_{}", ident, scope->block_depth);
+                return std::format("{}_{}", ident, scope->scope_id);
             }
             scope = scope->parent;
         }
@@ -194,10 +159,6 @@ public:
 
 class UnaryExpAST : public BaseAST {
 public:
-    enum Type {
-        Virtual,  // PrimaryExp
-        Real,     // UnaryOp UnaryExp
-    } type;
     struct Container {
         Operator unary_op;
         AstObject unary_exp;
@@ -205,40 +166,36 @@ public:
     std::variant<AstObject, Container> content;
     UnaryExpAST(int line, int column) : BaseAST(line, column) {}
     explicit UnaryExpAST(AstObject&& obj)
-        : BaseAST(obj->line, obj->column), type(Virtual), content(std::move(obj)) {
+        : BaseAST(obj->line, obj->column), content(std::move(obj)) {
         auto& virtual_exp = std::get<AstObject>(content);
         virtual_exp->parent = this;
     }
     explicit UnaryExpAST(Container&& cont)
-        : BaseAST(cont.unary_exp->line, cont.unary_exp->column), type(Real),
-          content(std::move(cont)) {
+        : BaseAST(cont.unary_exp->line, cont.unary_exp->column), content(std::move(cont)) {
         auto& real_exp = std::get<Container>(content);
         real_exp.unary_exp->parent = this;
     }
 
     bool isConstExpr() const override {
-        switch (type) {
-            case Virtual: return std::get<AstObject>(content)->isConstExpr();
-            case Real: return std::get<Container>(content).unary_exp->isConstExpr();
-        }
-        throw runtimeError("invalid unary expression");
+        return Match{content}(  // for clang-format split line
+            [](const AstObject& obj) { return obj->isConstExpr(); },
+            [](const Container& ctn) { return ctn.unary_exp->isConstExpr(); });
     }
 
     std::string toString() const override {
-        switch (type) {
-            case Virtual: return std::get<AstObject>(content)->toString();
-            case Real:
-                auto& [op, exp] = std::get<Container>(content);
+        return Match{content}(  //
+            [](const AstObject& obj) { return obj->toString(); },
+            [](const Container& ctn) {
+                auto& [op, exp] = ctn;
                 return serializeClass("UnaryExpAST", op, exp);
-        }
-        throw runtimeError("invalid unary expression");
+            });
     }
 
     IrObject toIR() const override {
-        switch (type) {
-            case Virtual: return std::get<AstObject>(content)->toIR();
-            case Real: {
-                auto& [op, exp] = std::get<Container>(content);
+        return Match{content}(  //
+            [](const AstObject& obj) { return obj->toIR(); },
+            [](const Container& ctn) -> IrObject {
+                auto& [op, exp] = ctn;
                 auto ir = std::make_unique<ValueIR>(Inst::Binary);
                 switch (op) {
                     case Operator::add: return exp->toIR();
@@ -250,186 +207,92 @@ public:
                         return ir;
                     default: throw runtimeError("invalid operator {} for unary expression", op);
                 }
-            }
-        }
-        throw runtimeError("invalid unary expression");
+            });
     }
 
     int calc() const override {
-        switch (type) {
-            case Virtual: return std::get<AstObject>(content)->calc();
-            case Real: {
-                auto& [op, exp] = std::get<Container>(content);
+        return Match{content}(  //
+            [](const AstObject& obj) { return obj->calc(); },
+            [](const Container& ctn) {
+                auto& [op, exp] = ctn;
                 return getFunction<int>(op)(0, exp->calc());
-            }
-        }
-        throw runtimeError("invalid unary expression");
+            });
     }
 
     void init() override {
         BaseAST::init();
-        if (type == Virtual) {
-            std::get<AstObject>(content)->init();
-        } else {
-            std::get<Container>(content).unary_exp->init();
-        }
+        Match{content}(  //
+            [](const AstObject& obj) { obj->init(); },
+            [](const Container& ctn) { ctn.unary_exp->init(); });
     }
 };
 
 class BinaryExpAST : public BaseAST {
 public:
-    enum Type {
-        Virtual,
-        Real,
-    } type;
     struct Container {
         AstObject left;
         Operator op;
         AstObject right;
     };
     std::variant<AstObject, Container> content;
-    BinaryExpAST(int line, int column) : BaseAST(line, column) {}
     explicit BinaryExpAST(AstObject&& obj)
-        : BaseAST(obj->line, obj->column), type(Virtual), content(std::move(obj)) {
+        : BaseAST(obj->line, obj->column), content(std::move(obj)) {
         auto& virtual_exp = std::get<AstObject>(content);
         virtual_exp->parent = this;
     }
-    explicit BinaryExpAST(Container&& cont)
-        : BaseAST(cont.left->line, cont.left->column), type(Real), content(std::move(cont)) {
+    explicit BinaryExpAST(int line, int column, Container&& cont)
+        : BaseAST(line, column), content(std::move(cont)) {
         auto& real_exp = std::get<Container>(content);
         real_exp.left->parent = this;
         real_exp.right->parent = this;
     }
     bool isConstExpr() const override {
-        switch (type) {
-            case Virtual: return std::get<AstObject>(content)->isConstExpr();
-            case Real:
-                auto& [left, op, right] = std::get<Container>(content);
-                return left->isConstExpr() && right->isConstExpr();
-        }
-        throw runtimeError("invalid binary expression");
+        return Match{content}(  //
+            [](const AstObject& obj) { return obj->isConstExpr(); },
+            [](const Container& ctn) {
+                return ctn.left->isConstExpr() && ctn.right->isConstExpr();
+            });
     }
     std::string toString() const override {
-        switch (type) {
-            case Virtual: return std::get<AstObject>(content)->toString();
-            case Real:
-                auto& [left, op, right] = std::get<Container>(content);
+        return Match{content}(  //
+            [](const AstObject& obj) { return obj->toString(); },
+            [](const Container& ctn) {
+                auto& [left, op, right] = ctn;
                 return serializeClass("BinaryExpAST", op, left, right);
-        }
-        throw runtimeError("invalid binary expression");
+            });
     }
     IrObject toIR() const override {
-        switch (type) {
-            case Virtual: return std::get<AstObject>(content)->toIR();
-            case Real: {
-                auto& [left, op, right] = std::get<Container>(content);
-                auto ir = std::make_unique<ValueIR>(Inst::Binary);
-                ir->content = toIrOperatorName(op);
-                ir->params.push_back(left->toIR());
-                ir->params.push_back(right->toIR());
-                return ir;
-            }
-        }
-        throw runtimeError("invalid binary expression");
+        return Match{content}(  //
+            [&](const AstObject& obj) { return obj->toIR(); },
+            [&](const Container& ctn) -> IrObject {
+                if (isConstExpr()) {
+                    return NumberAST(calc()).toIR();
+                } else {
+                    auto& [left, op, right] = ctn;
+                    auto ir = std::make_unique<ValueIR>(Inst::Binary);
+                    ir->content = toIrOperatorName(op);
+                    ir->params.push_back(left->toIR());
+                    ir->params.push_back(right->toIR());
+                    return ir;
+                }
+            });
     }
     int calc() const override {
-        switch (type) {
-            case Virtual: return std::get<AstObject>(content)->calc();
-            case Real: {
-                auto& [left, op, right] = std::get<Container>(content);
+        return Match{content}(  //
+            [](const AstObject& obj) { return obj->calc(); },
+            [](const Container& ctn) {
+                auto& [left, op, right] = ctn;
                 return getFunction<int>(op)(left->calc(), right->calc());
-            }
-        }
-        throw runtimeError("invalid binary expression");
+            });
     }
     void init() override {
         BaseAST::init();
-        if (type == Virtual) {
-            std::get<AstObject>(content)->init();
-        } else {
-            const auto& [left, op, right] = std::get<Container>(content);
-            left->init();
-            right->init();
-        }
-    }
-};
-
-class StmtAST : public BaseAST {
-public:
-    enum Type {
-        Return,
-        Assign,
-        Block,
-        Expr,
-    } type;
-    struct AssignContainer {
-        AstObject lval;
-        AstObject exp;
-    };
-    std::variant<AstObject, AssignContainer> content;
-    StmtAST(int line, int column, Type type, AstObject&& _content)
-        : BaseAST(line, column), type(type) {
-        if (_content) _content->parent = this;
-        content = std::move(_content);
-    }
-    StmtAST(int line, int column, Type type, AstObject&& _lval, AstObject&& _exp)
-        : BaseAST(line, column), type(type) {
-        _lval->parent = _exp->parent = this;
-        content = (AssignContainer){std::move(_lval), std::move(_exp)};
-    }
-    std::string toString() const override {
-        switch (type) {
-            case Return:
-            case Expr:
-            case Block: {
-                auto& exp = std::get<AstObject>(content);
-                return serializeClass("StmtAST", type, exp);
-            }
-            case Assign: {
-                auto& [lval, exp] = std::get<AssignContainer>(content);
-                return serializeClass("StmtAST", type, lval, exp);
-            }
-        }
-        throw runtimeError("invalid statement");
-    }
-    IrObject toIR() const override {
-        switch (type) {
-            case Expr:
-            case Block: {
-                if (const auto& obj_content = std::get<AstObject>(content))
-                    return obj_content->toIR();
-                else
-                    return nullptr;
-            }
-            case Return: {
-                auto ir = std::make_unique<ValueIR>(Inst::Return);
-                ir->content = "ret";
-                ir->params.push_back(std::get<AstObject>(content)->toIR());
-                return ir;
-            }
-            case Assign: {
-                auto& [raw_lval, raw_exp] = std::get<AssignContainer>(content);
-                auto lval = dynamic_cast<LValAST*>(raw_lval.get());
-                auto exp = dynamic_cast<ExpAST*>(raw_exp.get());
-                auto ir = std::make_unique<ValueIR>(Inst::Store, lval->getName());
-                ir->params.push_back(exp->toIR());
-                return ir;
-            }
-        }
-        throw runtimeError("invalid statement");
-    }
-    friend std::string toString(StmtAST::Type t) {
-        return t == StmtAST::Return ? "Return" : "Assign";
-    }
-    void init() override {
-        BaseAST::init();
-        if (type == Assign) {
-            auto& [lval, exp] = std::get<AssignContainer>(content);
-            lval->init();
-            exp->init();
-        } else {
-            if (const auto& exp = std::get<AstObject>(content)) exp->init();
-        }
+        Match{content}(  //
+            [](const AstObject& obj) { obj->init(); },
+            [](const Container& ctn) {
+                ctn.left->init();
+                ctn.right->init();
+            });
     }
 };
 
@@ -441,6 +304,9 @@ public:
     ConstDefAST(const std::string& ident, AstObject&& init_exp)
         : BaseAST(init_exp->line, init_exp->column), ident(ident), init_exp(std::move(init_exp)) {}
     void writeSymbol() const {
+        if (!init_exp->isConstExpr()) {
+            throw compileError("{}:{}: initializer is not a constant expression", line, column);
+        }
         for (auto scope = parent; scope; scope = scope->parent) {
             if (auto& map = scope->symbol_table) {
                 if (map->find(ident) != map->end())
@@ -451,12 +317,7 @@ public:
         }
         throw compileError("{}:{}: no available scope for variable {}", line, column, ident);
     }
-    void init() override {
-        BaseAST::init();
-        if (!init_exp->isConstExpr()) {
-            throw compileError("{}:{}: initializer is not a constant expression", line, column);
-        }
-    }
+    void init() override { BaseAST::init(); }
     std::string toString() const override { return serializeClass("ConstDefAST", ident, init_exp); }
     IrObject toIR() const override {
         writeSymbol();
@@ -516,7 +377,7 @@ public:
         while (scope) {
             auto& map = scope->symbol_table;
             if (map && map->find(ident) != map->end()) {
-                return std::format("{}_{}", ident, scope->block_depth);
+                return std::format("{}_{}", ident, scope->scope_id);
             }
             scope = scope->parent;
         }
@@ -527,7 +388,7 @@ public:
         auto ir = std::make_unique<MultiValueIR>();
         std::string mangled_ident = getName();
         auto inst1 = std::make_unique<ValueIR>(Inst::Alloc, mangled_ident);
-        inst1->type->tag = IrType::Tag::Int32;
+        inst1->type->tag = BaseIR::Type::Tag::Int32;
         ir->add(std::move(inst1));
         if (init_exp) {
             auto inst2 = std::make_unique<ValueIR>(Inst::Store, mangled_ident);
@@ -572,6 +433,138 @@ public:
     }
 };
 
+class StmtAST : public BaseAST {
+public:
+    enum Type {
+        Return,
+        Assign,
+        Block,
+        Expr,
+        If,
+    } type;
+    struct AssignContainer {
+        AstObject lval, exp;
+    };
+    struct IfContainer {
+        AstObject exp, then_stmt, else_stmt;
+    };
+    std::variant<AstObject, AssignContainer, IfContainer> content;
+    StmtAST(int line, int column, Type type, AstObject&& _content)
+        : BaseAST(line, column), type(type) {
+        if (_content) _content->parent = this;
+        content = std::move(_content);
+    }
+    StmtAST(int line, int column, AssignContainer&& assign_stmt)
+        : BaseAST(line, column), type(Assign) {
+        assign_stmt.lval->parent = assign_stmt.exp->parent = this;
+        content = std::move(assign_stmt);
+    }
+    StmtAST(int line, int column, IfContainer&& if_stmt) : BaseAST(line, column), type(If) {
+        if_stmt.exp->parent = if_stmt.then_stmt->parent = this;
+        if (if_stmt.else_stmt) if_stmt.else_stmt->parent = this;
+        content = std::move(if_stmt);
+    }
+    std::string toString() const override {
+        switch (type) {
+            case Return:
+            case Expr:
+            case Block: {
+                auto& exp = std::get<AstObject>(content);
+                return serializeClass("StmtAST", type, exp);
+            }
+            case Assign: {
+                auto& [lval, exp] = std::get<AssignContainer>(content);
+                return serializeClass("StmtAST", type, lval, exp);
+            }
+            case If: {
+                auto& [exp, then_stmt, else_stmt] = std::get<IfContainer>(content);
+                return serializeClass("StmtAST", type, exp, then_stmt, else_stmt);
+            }
+        }
+        assert(false && "invalid statement");
+    }
+    IrObject toIR() const override {
+        switch (type) {
+            case Expr:
+            case Block: {
+                if (const auto& obj_content = std::get<AstObject>(content))
+                    return obj_content->toIR();
+                else
+                    return nullptr;
+            }
+            case Return: {
+                auto ir = std::make_unique<ValueIR>(Inst::Return);
+                ir->content = "ret";
+                ir->params.push_back(std::get<AstObject>(content)->toIR());
+                return ir;
+            }
+            case Assign: {
+                auto& [raw_lval, raw_exp] = std::get<AssignContainer>(content);
+                auto lval = dynamic_cast<LValAST*>(raw_lval.get());
+                auto exp = dynamic_cast<ExpAST*>(raw_exp.get());
+                auto ir = std::make_unique<ValueIR>(Inst::Store, lval->getName());
+                ir->params.push_back(exp->toIR());
+                return ir;
+            }
+            case If: {
+                auto& [exp, then_stmt, else_stmt] = std::get<IfContainer>(content);
+                auto ir = std::make_unique<MultiValueIR>();
+                std::string then_label = std::format("ifthen_{}_{}", line, column),
+                            else_label = std::format("ifelse_{}_{}", line, column),
+                            end_label = std::format("endif_{}_{}", line, column);
+                auto new_value = [](auto&&... params) {
+                    return std::make_unique<ValueIR>(params...);
+                };
+                ir->add(new_value(Inst::Branch, "", exp->toIR(), new_value(then_label),
+                                  new_value(else_stmt ? else_label : end_label)));
+                ir->add(std::make_unique<MultiValueIR>(new_value(Inst::Label, then_label),
+                                                       then_stmt->toIR(),
+                                                       new_value(Inst::Jump, end_label)));
+                if (else_stmt) {
+                    ir->add(std::make_unique<MultiValueIR>(new_value(Inst::Label, else_label),
+                                                           else_stmt->toIR(),
+                                                           new_value(Inst::Jump, end_label)));
+                }
+                ir->add(new_value(Inst::Label, end_label));
+                return ir;
+            }
+            default: {
+                throw runtimeError("unimplemented statement type {}", type);
+            }
+        }
+    }
+    friend std::string toString(StmtAST::Type t) {
+        switch (t) {
+            case Return: return "Return";
+            case Assign: return "Assign";
+            case Block: return "Block";
+            case Expr: return "Expr";
+            case If: return "If";
+            default: assert(false && "invalid statement");
+        }
+    }
+    void init() override {
+        BaseAST::init();
+        switch (type) {
+            case Assign: {
+                auto& [lval, exp] = std::get<AssignContainer>(content);
+                lval->init();
+                exp->init();
+                break;
+            }
+            case If: {
+                auto& [exp, then_stmt, else_stmt] = std::get<IfContainer>(content);
+                exp->init();
+                then_stmt->init();
+                if (else_stmt) else_stmt->init();
+                break;
+            }
+            default:
+                if (const auto& exp = std::get<AstObject>(content)) exp->init();
+        }
+    }
+};
+
 class BlockItemAST : public BaseAST {
 public:
     enum Type {
@@ -593,6 +586,8 @@ public:
     }
 };
 
+inline int _block_id_tot;
+
 class BlockAST : public BaseAST {
 public:
     std::vector<AstObject> stmts;
@@ -601,31 +596,60 @@ public:
     }
     void init() override {
         BaseAST::init();
-        block_depth++;
+        scope_id = _block_id_tot++;
         for (const auto& stmt : stmts) {
             stmt->init();
         }
     }
     std::string toString() const override { return serializeClass("BlockAST", stmts); }
     IrObject toIR() const override {
-        if (block_depth < 0) throw runtimeError("block depth unspecified");
-        if (block_depth == 0) {
-            auto ir = std::make_unique<BasicBlockIR>();
-            ir->entrance = "entry";
-            for (const auto& stmt : stmts) {
-                ir->add(stmt->toIR());
-            }
-            symbol_table->clear();
-            return ir;
-        } else {
-            auto ir = std::make_unique<MultiValueIR>();
-            for (const auto& stmt : stmts) {
-                ir->add(stmt->toIR());
-            }
-            symbol_table->clear();
-            return ir;
+        if (scope_id < 0) throw runtimeError("block depth unspecified");
+        auto ir = std::make_unique<MultiValueIR>();
+        for (const auto& stmt : stmts) {
+            ir->add(stmt->toIR());
         }
+        symbol_table->clear();
+        return ir;
     }
+};
+
+class FuncDefAST : public BaseAST {
+public:
+    AstObject func_type;
+    std::string ident;
+    AstObject block;
+    FuncDefAST(int line, int column) : BaseAST(line, column) {}
+    FuncDefAST(const std::string& ident, AstObject&& block)
+        : BaseAST(block->line, block->column), ident(ident), block(std::move(block)) {}
+    std::string toString() const override {
+        return serializeClass("FuncDefAST", func_type, ident, block);
+    }
+    IrObject toIR() const override {
+        _block_id_tot = 0;
+        auto ir = std::make_unique<FunctionIR>(ident);
+        auto block_ir = std::make_unique<MultiValueIR>();
+        block_ir->add(std::make_unique<ValueIR>(Inst::Label, "entry"));
+        block_ir->add(block->toIR());
+        ir->blocks = std::move(block_ir);
+        return ir;
+    }
+    void init() override {
+        BaseAST::init();
+        block->init();
+    }
+};
+
+class CompUnitAST : public BaseAST {
+public:
+    AstObject func_def;
+    CompUnitAST(int line, int column) : BaseAST(line, column) {}
+    std::string toString() const override { return serializeClass("CompUnitAST", func_def); }
+    IrObject toIR() const override {
+        auto ir = std::make_unique<ProgramIR>();
+        ir->funcs.push_back(func_def->toIR());
+        return ir;
+    }
+    void init() override { func_def->init(); }
 };
 
 #endif

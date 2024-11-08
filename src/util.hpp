@@ -2,11 +2,13 @@
 #define UTIL_HPP
 #include <cstring>
 #include <filesystem>
-#include <map>
 #include <format>
+#include <iostream>
+#include <list>
+#include <map>
+#include <source_location>
 #include <sstream>
 #include <string>
-#include <source_location>
 #include <string_view>
 #include <vector>
 
@@ -36,10 +38,11 @@ inline std::string compressStr(std::string_view str) {
             ret += ' ';
         prev = i;
     }
+    if (str.back() == '\n') ret += '\n';
     return ret;
 }
 
-inline std::string tryCompressStr(std::string_view str) {
+inline std::string tryCompressStr(const std::string& str) {
     if (str.length() < 80)
         return compressStr(str);
     else
@@ -71,6 +74,10 @@ template <typename K, typename V> std::string toString(const std::map<K, V>& m) 
     return tryCompressStr("[\n" + addIndent(toString(m.begin(), m.end())) + "]");
 }
 
+template <typename T> std::string toString(const std::list<T>& l) {
+    return tryCompressStr("[\n" + addIndent(toString(l.begin(), l.end())) + "]");
+}
+
 std::string serialize(const auto& val) {
     if constexpr (requires { std::string(val); }) {
         return "\"" + std::string(val) + "\"";
@@ -79,24 +86,28 @@ std::string serialize(const auto& val) {
     } else if constexpr (requires { val.toString(); }) {
         return val.toString();
     } else if constexpr (requires { val->toString(); }) {
-        if (val) return val->toString();
-        else return "nullptr";
-    } else if constexpr (requires { std::to_string(val); }) {
-        return std::to_string(val);
+        if (val)
+            return val->toString();
+        else
+            return "nullptr";
+    } else if constexpr (requires { std::declval<std::ostream>() << val; }) {
+        return (std::ostringstream() << val).str();
     } else {
         static_assert(false, "can not convert to string");
     }
 }
 
 template <typename T>
-concept has_custom_tostring = requires(T t) {
-    { t.toString() } -> std::convertible_to<std::string>;
-} || requires(T t) {
-    { toString(t) } -> std::convertible_to<std::string>;
-};
-template <has_custom_tostring T> struct std::formatter<T> : std::formatter<std::string> {
+    requires(
+        requires(T t) { t.toString(); } || requires(T t) { toString(t); })
+struct std::formatter<T> : std::formatter<std::string> {
     auto format(const T& t, std::format_context& ctx) const {
-        return std::formatter<std::string>::format(serialize(t), ctx);
+        std::string str;
+        if constexpr (requires { t.toString(); })
+            str = t.toString();
+        else
+            str = toString(t);
+        return std::formatter<std::string>::format(str, ctx);
     }
 };
 
@@ -127,8 +138,9 @@ std::string serializeVar(const char* names, const auto& var, const auto&... rest
     tryCompressStr(name " {\n" + addIndent(serializeVar(#__VA_ARGS__, __VA_ARGS__)) + "}")
 
 inline std::string getLocation(std::source_location location = std::source_location::current()) {
-    return std::format("{}:{} `{}`", std::filesystem::path(location.file_name()).filename().string(),
-                  location.line(), location.function_name());
+    return std::format("{}:{} `{}`",
+                       std::filesystem::path(location.file_name()).filename().string(),
+                       location.line(), location.function_name());
 }
 
 #define RED      "\033[0;31m"
@@ -154,9 +166,27 @@ inline std::string getLocation(std::source_location location = std::source_locat
 #define compileError(...) std::logic_error(std::format(addLocation(__VA_ARGS__)))
 
 #ifdef DEBUG
-#    define debugLog(...) std::cerr << std::format(addLocation(__VA_ARGS__))
+#    define debugLog(...) std::cerr << tryCompressStr(std::format(addLocation(__VA_ARGS__)))
 #else
 #    define debugLog(...) (void)0
 #endif
+
+template <typename... Ts> struct Visitor : Ts... {
+    using Ts::operator()...;
+};
+
+template <typename... Ts> Visitor(Ts...) -> Visitor<Ts...>;
+
+template <typename T> struct Match {
+    T&& value;
+    Match(T&& value) : value(std::forward<T>(value)) {}
+    Match(T& value) : value(std::forward<T>(value)) {}
+    template <typename... Ts> auto operator()(Ts&&... params) {
+        return std::visit(Visitor{std::forward<Ts>(params)...}, std::forward<T>(value));
+    }
+    template <typename... Ts> auto operator()(Visitor<Ts...> visitor) {
+        return std::visit(visitor, std::forward<T>(value));
+    }
+};
 
 #endif

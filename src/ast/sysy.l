@@ -6,9 +6,8 @@
 
 #include <cstdlib>
 #include <string>
-#include "ast.hpp"
-#include "riscv.hpp"
-#include "bf.hpp"
+#include "ast/ast.hpp"
+#include "ir/ir.hpp"
 
 // 因为 Flex 会用到 Bison 中关于 token 的定义
 // 所以需要 include Bison 生成的头文件
@@ -51,9 +50,11 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 
 \n              { update_line(); /* 更新行号 */ }
 
-"int"           { update_column(); return INT; }
-"return"        { update_column(); return RETURN; }
-"const"         { update_column(); return CONST; }
+"int"           { yylval.pos_val = {yylineno, yycolumn}; update_column(); return INT; }
+"return"        { yylval.pos_val = {yylineno, yycolumn}; update_column(); return RETURN; }
+"const"         { yylval.pos_val = {yylineno, yycolumn}; update_column(); return CONST; }
+"if"            { yylval.pos_val = {yylineno, yycolumn}; update_column(); return IF; }
+"else"          { yylval.pos_val = {yylineno, yycolumn}; update_column(); return ELSE; }
 
 "<"             { yylval.op_val = {Operator::lt, yylineno, yycolumn}; update_column(); return REL_OP; }
 ">"             { yylval.op_val = {Operator::gt, yylineno, yycolumn}; update_column(); return REL_OP; }
@@ -63,8 +64,8 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 "=="            { yylval.op_val = {Operator::eq, yylineno, yycolumn}; update_column(); return EQ_OP; }
 "!="            { yylval.op_val = {Operator::neq, yylineno, yycolumn}; update_column(); return EQ_OP; }
 
-"&&"            { update_column(); return LAND; }
-"||"            { update_column(); return LOR; }
+"&&"            { yylval.pos_val = {yylineno, yycolumn}; update_column(); return LAND; }
+"||"            { yylval.pos_val = {yylineno, yycolumn}; update_column(); return LOR; }
 
 {Identifier}    { yylval.str_val = {new string(yytext), yylineno, yycolumn}; update_column(); return IDENT; }
 

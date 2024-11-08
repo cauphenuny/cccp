@@ -1,7 +1,8 @@
 %code requires {
   #include <memory>
   #include <string>
-  #include "ast.hpp"
+  #include "ast/ast.hpp"
+  #include "ir/ir.hpp"
   // 添加行列信息的头文件
   extern int yylineno;
   extern int yycolumn;
@@ -12,10 +13,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include "ast.hpp"
-#include "ir.hpp"
-#include "riscv.hpp"
-#include "bf.hpp"
+#include "ast/ast.hpp"
 
 // 声明 lexer 函数和错误处理函数
 int yylex();
@@ -38,6 +36,10 @@ using namespace std;
 // 请自行 STFW 在 union 里写一个带析构函数的类会出现什么情况
 %union {
   struct {
+    int line;
+    int column;
+  } pos_val;
+  struct {
     std::string* val;
     int line;
     int column;
@@ -56,14 +58,13 @@ using namespace std;
 }
 
 // lexer 返回的所有 token 种类的声明
-// 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN LAND LOR CONST
+%token <pos_val> INT RETURN LAND LOR CONST IF ELSE
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 %token <op_val> REL_OP EQ_OP
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType Block BlockItem Stmt
+%type <ast_val> FuncDef FuncType Block BlockItem Stmt OpenStmt CloseStmt SimpleStmt
 %type <ast_val> Decl ConstDecl ConstDef VarType ConstDefList VarDecl VarDef VarDefList
 %type <ast_val> Exp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp LVal Number ConstInitVal InitVal
 %type <op_val> UnaryOp MulOp AddOp
@@ -136,7 +137,7 @@ FuncDef
 // 同上, 不再解释
 FuncType
   : INT {
-    auto ast = new FuncTypeAST(yylineno, yycolumn);
+    auto ast = new FuncTypeAST($1.line, $1.column);
     ast->type = "int";
     $$ = ast;
   }
@@ -168,6 +169,44 @@ Block
   ;
 
 Stmt
+  : OpenStmt | CloseStmt {
+    $$ = $1;
+  };
+
+OpenStmt
+  : IF '(' Exp ')' Stmt {
+    auto exp_ast = new BinaryExpAST($3->line, $3->column, (BinaryExpAST::Container){
+      AstObject($3), 
+      Operator::neq, 
+      AstObject(new NumberAST(0))
+    });
+    $$ = new StmtAST($1.line, $1.column, (StmtAST::IfContainer){AstObject(exp_ast), AstObject($5), nullptr});
+  }
+  | IF '(' Exp ')' CloseStmt ELSE OpenStmt {
+    auto exp_ast = new BinaryExpAST($3->line, $3->column, (BinaryExpAST::Container){
+      AstObject($3), 
+      Operator::neq, 
+      AstObject(new NumberAST(0))
+    });
+    $$ = new StmtAST($1.line, $1.column, (StmtAST::IfContainer){AstObject(exp_ast), AstObject($5), AstObject($7)});
+  }
+  ;
+
+CloseStmt
+  : SimpleStmt {
+    $$ = $1;
+  }
+  | IF '(' Exp ')' CloseStmt ELSE CloseStmt {
+    auto exp_ast = new BinaryExpAST($3->line, $3->column, (BinaryExpAST::Container){
+      AstObject($3), 
+      Operator::neq, 
+      AstObject(new NumberAST(0))
+    });
+    $$ = new StmtAST($1.line, $1.column, (StmtAST::IfContainer){AstObject(exp_ast), AstObject($5), AstObject($7)});
+  }
+  ;
+
+SimpleStmt
   : ';' {
     $$ = new StmtAST(yylineno, yycolumn, StmtAST::Expr, nullptr);
   }
@@ -181,7 +220,7 @@ Stmt
     $$ = new StmtAST(yylineno, yycolumn, StmtAST::Return, AstObject($2));
   }
   | LVal '=' Exp ';' {
-    $$ = new StmtAST(yylineno, yycolumn, StmtAST::Assign, AstObject($1), AstObject($3));
+    $$ = new StmtAST(yylineno, yycolumn, (StmtAST::AssignContainer){AstObject($1), AstObject($3)});
   }
   | Block {
     $$ = new StmtAST(yylineno, yycolumn, StmtAST::Block, AstObject($1));
@@ -268,7 +307,7 @@ MulExp
     $$ = ast;
   }
   | MulExp MulOp UnaryExp {
-    auto ast = new BinaryExpAST((BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2.val,
       .right = AstObject($3)
@@ -286,7 +325,7 @@ AddExp
     $$ = ast;
   }
   | AddExp AddOp MulExp {
-    auto ast = new BinaryExpAST((BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2.val,
       .right = AstObject($3)
@@ -305,7 +344,7 @@ RelExp
     $$ = ast;
   }
   | RelExp REL_OP AddExp {
-    auto ast = new BinaryExpAST((BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2.val,
       .right = AstObject($3)
@@ -324,7 +363,7 @@ EqExp
     $$ = ast;
   }
   | EqExp EQ_OP RelExp {
-    auto ast = new BinaryExpAST((BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = $2.val,
       .right = AstObject($3)
@@ -343,17 +382,17 @@ LAndExp
     $$ = ast;
   }
   | LAndExp LAND EqExp {
-    auto ast_left = new BinaryExpAST((BinaryExpAST::Container) {
+    auto ast_left = new BinaryExpAST($1->line, $1->column, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = Operator::neq,
       .right = AstObject(new NumberAST(0, yylineno, yycolumn))
     });
-    auto ast_right = new BinaryExpAST((BinaryExpAST::Container) {
+    auto ast_right = new BinaryExpAST($3->line, $3->column, (BinaryExpAST::Container) {
       .left = AstObject($3),
       .op = Operator::neq,
       .right = AstObject(new NumberAST(0, yylineno, yycolumn))
     });
-    auto ast = new BinaryExpAST((BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
       .left = AstObject(ast_left),
       .op = Operator::band,
       .right = AstObject(ast_right)
@@ -372,17 +411,17 @@ LOrExp
     $$ = ast;
   }
   | LOrExp LOR LAndExp {
-    auto ast_left = new BinaryExpAST((BinaryExpAST::Container) {
+    auto ast_left = new BinaryExpAST($1->line, $1->column, (BinaryExpAST::Container) {
       .left = AstObject($1),
       .op = Operator::neq,
       .right = AstObject(new NumberAST(0, yylineno, yycolumn))
     });
-    auto ast_right = new BinaryExpAST((BinaryExpAST::Container) {
+    auto ast_right = new BinaryExpAST($3->line, $3->column, (BinaryExpAST::Container) {
       .left = AstObject($3),
       .op = Operator::neq,
       .right = AstObject(new NumberAST(0, yylineno, yycolumn))
     });
-    auto ast = new BinaryExpAST((BinaryExpAST::Container) {
+    auto ast = new BinaryExpAST(yylineno, yycolumn, (BinaryExpAST::Container) {
       .left = AstObject(ast_left),
       .op = Operator::bor,
       .right = AstObject(ast_right)
@@ -403,7 +442,7 @@ LVal
 
 VarType
   : INT {
-    auto ast = new VarTypeAST(yylineno, yycolumn);
+    auto ast = new VarTypeAST($1.line, $1.column);
     ast->type = "int";
     $$ = ast;
   }

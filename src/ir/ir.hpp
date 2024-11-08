@@ -5,7 +5,7 @@
 
 #include <cassert>
 #include <functional>
-#include <map>
+#include <list>
 #include <string>
 #include <vector>
 
@@ -74,29 +74,20 @@ inline std::array<std::pair<Operator, const char*>, 13> name_map = {{
 // clang-format on
 
 inline std::string toString(const Operator& oper) {
-    for (const auto& [op, raw] : raw_map) {
-        if (op == oper) {
-            return raw;
-        }
-    }
+    for (const auto& [op, raw] : raw_map)
+        if (op == oper) return raw;
     throw runtimeError("unknown operator: {}", (int)oper);
 }
 
 inline const char* toIrOperatorName(Operator oper) {
-    for (const auto& [op, name] : name_map) {
-        if (op == oper) {
-            return name;
-        }
-    }
+    for (const auto& [op, name] : name_map)
+        if (op == oper) return name;
     throw runtimeError("unknown operator: {}", oper);
 }
 
 inline Operator toOperator(const std::string& str) {
-    for (const auto& [op, name] : name_map) {
-        if (name == str) {
-            return op;
-        }
-    }
+    for (const auto& [op, name] : name_map)
+        if (name == str) return op;
     throw runtimeError("unknown operator: {}", str);
 }
 
@@ -105,48 +96,60 @@ enum class Inst {
     Unknown, ZeroInit, FuncArgRef, GlobalAlloc, Alloc, Load, Store,
     GetPtr, GetElemPtr, Binary, Branch, Jump, Call, Return,
     // non-instrument values
-    Integer,
+    Integer, String, Label, 
 };
 
 inline std::string toString(Inst t) {
     switch (t) {
-        case Inst::Unknown: return "Unknown"; 
-        case Inst::ZeroInit: return "ZeroInit";
-        case Inst::FuncArgRef: return "FuncArgRef"; 
-        case Inst::GlobalAlloc: return "GlobalAlloc";
-        case Inst::Alloc: return "Alloc"; 
-        case Inst::Load: return "Load";
-        case Inst::Store: return "Store"; 
-        case Inst::GetPtr: return "GetPtr";
-        case Inst::GetElemPtr: return "GetElemPtr"; 
-        case Inst::Binary: return "Binary";
-        case Inst::Branch: return "Branch"; 
-        case Inst::Jump: return "Jump";
-        case Inst::Call: return "Call"; 
-        case Inst::Return: return "Return";
-        case Inst::Integer: return "Integer";
+        case Inst::Unknown: return "Unknown"; case Inst::ZeroInit: return "ZeroInit"; case Inst::FuncArgRef: return "FuncArgRef"; 
+        case Inst::GlobalAlloc: return "GlobalAlloc"; case Inst::Alloc: return "Alloc"; case Inst::Load: return "Load";
+        case Inst::Store: return "Store"; case Inst::GetPtr: return "GetPtr"; case Inst::GetElemPtr: return "GetElemPtr"; 
+        case Inst::Binary: return "Binary"; case Inst::Branch: return "Branch"; case Inst::Jump: return "Jump";
+        case Inst::Call: return "Call"; case Inst::Return: return "Return"; case Inst::Integer: return "Integer";
+        case Inst::String: return "String"; case Inst::Label: return "Label";
         default: return "Invalid";
     }
 }
 // clang-format on
 
-class IrType {
+class BaseIR {
+public:
+    class Type;
+    std::unique_ptr<Type> type;
+    BaseIR() : type(std::make_unique<Type>()) {}
+    virtual ~BaseIR() = default;
+    virtual std::string toString() const = 0;
+    struct IrContext;
+    virtual std::string print(std::shared_ptr<IrContext> context = nullptr) const = 0;
+    class RiscvContext;
+    virtual std::string printRiscV(std::shared_ptr<RiscvContext> context = nullptr) const = 0;
+    struct BfContext;
+    virtual std::string printBf(bool compress = false,
+                                std::shared_ptr<BfContext> context = nullptr) const = 0;
+    virtual int stackSize() const {
+        throw runtimeError("can not calculate stack size for {}", typeid(*this).name());
+    }
+};
+
+using IrObject = std::unique_ptr<BaseIR>;
+
+class BaseIR::Type {
 public:
     enum class Tag { Unit, Int32, Array, Pointer, Function };
     struct ArrayData {
-        std::unique_ptr<IrType> base;
+        std::unique_ptr<Type> base;
         int size;
     };
     struct PointerData {
-        std::unique_ptr<IrType> base;
+        std::unique_ptr<Type> base;
     };
     struct FunctionData {
-        std::unique_ptr<IrType> ret;
-        std::vector<std::unique_ptr<IrType>> args;
+        std::unique_ptr<Type> ret;
+        std::vector<std::unique_ptr<Type>> args;
     };
     Tag tag;
     std::variant<std::monostate, ArrayData, PointerData, FunctionData> data;
-    explicit IrType(Tag t) : tag(t) {}
+    explicit Type(Tag t = Tag::Int32) : tag(t) {}
     std::string toString() const {
         switch (tag) {
             case Tag::Unit: return "unit";
@@ -173,25 +176,6 @@ public:
     }
 };
 
-class BaseIR {
-public:
-    std::unique_ptr<IrType> type;
-    BaseIR() { type = std::make_unique<IrType>(IrType::Tag::Unit); }
-    virtual ~BaseIR() = default;
-    virtual std::string toString() const = 0;
-    struct IrContext;
-    virtual std::string print(IrContext* context = nullptr) const = 0;
-    class RiscvContext;
-    virtual std::string printRiscV(RiscvContext* context = nullptr) const = 0;
-    struct BfContext;
-    virtual std::string printBf(BfContext* context = nullptr) const = 0;
-    virtual int stackSize() const {
-        throw runtimeError("can not calculate stack size for {}", typeid(*this).name());
-    }
-};
-
-using IrObject = std::unique_ptr<BaseIR>;
-
 struct BaseIR::IrContext {
     std::string ret;
     int cnt;
@@ -205,14 +189,21 @@ public:
     std::vector<IrObject> params;
     ValueIR() = delete;
     explicit ValueIR(Inst inst) : inst(inst) { setType(); }
-    ValueIR(Inst inst, const std::string& str) : inst(inst), content(str) { setType(); }
+    explicit ValueIR(const std::string& content) : inst(Inst::String), content(content) {}
+    ValueIR(Inst inst, const std::string& content) : inst(inst), content(content) { setType(); }
+    ValueIR(Inst inst, const std::string& content, auto&&... params) {
+        this->inst = inst;
+        this->content = content;
+        (this->params.emplace_back(std::move(params)), ...);
+        setType();
+    }
     std::string toString() const override {
         return serializeClass("ValueIR", inst, content, params);
     }
 
-    std::string print(IrContext* context) const override {
+    std::string print(std::shared_ptr<IrContext> context) const override {
         assert(context != nullptr);
-        auto ctx = (IrContext*)context;
+        auto ctx = context;
         std::string str;
         std::vector<std::string> ret;
         for (const auto& param : params) {
@@ -221,31 +212,29 @@ public:
         }
         using std::format;
         switch (inst) {
+            case Inst::Label: str += format("\n%{}:\n", content); break;
+            case Inst::String:
             case Inst::Integer: ctx->ret = content; break;
             case Inst::Load:
                 ctx->ret = format("%{}", ctx->cnt++);
-                str += format("{} = load @{}\n", ctx->ret, content);
+                str += format("  {} = load @{}\n", ctx->ret, content);
                 break;
-            case Inst::Alloc:
-                str += format("@{} = alloc {}\n", content, type);
-                break;
-            case Inst::Store:
-                str += format("store {}, @{}\n", ret[0], content);
-                break;
+            case Inst::Alloc: str += format("  @{} = alloc {}\n", content, type); break;
+            case Inst::Store: str += format("  store {}, @{}\n", ret[0], content); break;
             case Inst::Binary: {
                 ctx->ret = format("%{}", ctx->cnt++);
-                str += format("{} = {} {}, {}\n", ctx->ret, content, ret[0], ret[1]);
+                str += format("  {} = {} {}, {}\n", ctx->ret, content, ret[0], ret[1]);
                 break;
             }
-            case Inst::Return:
-                str += "ret " + ret[0] + "\n";
-                break;
-            default: throw runtimeError("not implemented value type {}!", serialize(inst));
+            case Inst::Return: str += format("  ret {}\n", ret[0]); break;
+            case Inst::Jump: str += format("  jump %{}\n", content); break;
+            case Inst::Branch: str += format("  br {}, %{}, %{}\n", ret[0], ret[1], ret[2]); break;
+            default: throw runtimeError("not implemented value type {}!", inst);
         }
         return str;
     }
-    std::string printRiscV(RiscvContext*) const override;
-    std::string printBf(BfContext*) const override;
+    std::string printRiscV(std::shared_ptr<RiscvContext> context) const override;
+    std::string printBf(bool compress, std::shared_ptr<BfContext> context) const override;
     int stackSize() const override {
         int size;
         switch (inst) {
@@ -262,7 +251,7 @@ private:
         switch (inst) {
             case Inst::Integer:
             case Inst::Load:
-            case Inst::Binary: type = std::make_unique<IrType>(IrType::Tag::Int32); break;
+            case Inst::Binary: type = std::make_unique<Type>(Type::Tag::Int32); break;
             default: break;
         }
     }
@@ -270,18 +259,44 @@ private:
 
 class MultiValueIR : public BaseIR {
 public:
-    std::vector<IrObject> values;
-    std::string toString() const override { return serializeClass("MultiValueIR", values); }
-    std::string print(IrContext* context) const override {
+    bool terminated = false;
+    std::list<IrObject> values;
+
+    MultiValueIR(auto&&... params) { (this->add(std::move(params)), ...); }
+
+    std::string toString() const override { return serializeClass("MultipleIR", values); }
+
+    std::string print(std::shared_ptr<IrContext> context) const override {
         std::string str;
         for (const auto& value : values) {
             str += value->print(context);
         }
         return str;
     }
-    void add(IrObject&& value) { if (value) values.emplace_back(std::move(value)); }
-    std::string printRiscV(RiscvContext*) const override;
-    std::string printBf(BfContext*) const override;
+
+    void add(IrObject&& value) {
+        if (!value) return;
+        auto* value_ir = dynamic_cast<ValueIR*>(value.get());
+        if (value_ir) {
+            if (value_ir->inst == Inst::Label) terminated = false;
+            if (terminated) return;
+            values.push_back(std::move(value));
+            if (value_ir->inst == Inst::Return || value_ir->inst == Inst::Branch ||
+                value_ir->inst == Inst::Jump) {
+                terminated = true;
+            }
+        } else if (auto* multiple_ir = dynamic_cast<MultiValueIR*>(value.get())) {
+            for (auto& val : multiple_ir->values) {
+                add(std::move(val));
+            }
+        } else {
+            throw runtimeError("invalid value type {}", typeid(value).name());
+        }
+    }
+
+    std::string printRiscV(std::shared_ptr<RiscvContext> context) const override;
+    std::string printBf(bool compress, std::shared_ptr<BfContext> context) const override;
+
     int stackSize() const override {
         int size = 0;
         for (const auto& value : values) {
@@ -291,64 +306,25 @@ public:
     }
 };
 
-class BasicBlockIR : public BaseIR {
-public:
-    std::string entrance;
-    std::vector<IrObject> insts;  // instruments
-    std::map<std::string, std::string> symbol_map;
-    // std::string exit;
-
-    std::string toString() const override {
-        return serializeClass("BasicBlockIR", type, entrance, symbol_map, insts);
-    }
-    std::string print(IrContext* context) const override {
-        assert(context != nullptr);
-        std::string str = "%" + entrance + ":\n";
-        std::string insts_str;
-        for (const auto& inst : insts) {
-            insts_str += inst->print(context);
-        }
-        str += addIndent(insts_str);
-        return str;
-    }
-    std::string printRiscV(RiscvContext* context) const override;
-    std::string printBf(BfContext* context) const override;
-    void add(IrObject&& inst) {if (inst) insts.emplace_back(std::move(inst));}
-    int stackSize() const override {
-        int size = 0;
-        for (const auto& inst : insts) {
-            size += inst->stackSize();
-        }
-        return size;
-    }
-};
-
 class FunctionIR : public BaseIR {
 public:
     std::string name;
-    std::vector<IrObject> blocks;
+    IrObject blocks;
     explicit FunctionIR(const std::string& name) : name(name) {
-        type = std::make_unique<IrType>(IrType::Tag::Int32);
+        type = std::make_unique<Type>(Type::Tag::Int32);
     }
 
     std::string toString() const override { return serializeClass("FunctionIR", name, blocks); }
-    std::string print(IrContext*) const override {
-        IrContext ctx = {"", 0};
-        std::string blocks_str;
-        for (const auto& block : blocks) {
-            blocks_str += block->print(&ctx);
-        }
+    std::string print(std::shared_ptr<IrContext>) const override {
+        std::shared_ptr<IrContext> ctx = std::make_shared<IrContext>();
+        ctx->ret = "";
+        ctx->cnt = 0;
+        std::string blocks_str = blocks->print(ctx);
         return std::format("fun @{}(): {} {{\n{}}}\n", name, type, blocks_str);
     }
-    std::string printRiscV(RiscvContext*) const override;
-    std::string printBf(BfContext*) const override;
-    int stackSize() const override {
-        int size = 0;
-        for (const auto& block : blocks) {
-            size += block->stackSize();
-        }
-        return size;
-    }
+    std::string printRiscV(std::shared_ptr<RiscvContext> context) const override;
+    std::string printBf(bool compress, std::shared_ptr<BfContext> context) const override;
+    int stackSize() const override { return blocks->stackSize(); }
 };
 
 class ProgramIR : public BaseIR {
@@ -358,7 +334,7 @@ public:
     std::string toString() const override {
         return serializeClass("ProgramIR", global_vars, funcs);
     }
-    std::string print(IrContext*) const override {
+    std::string print(std::shared_ptr<IrContext>) const override {
         std::string str;
         // for (const auto& var : global_vars) {
         //     // TODO:
@@ -368,8 +344,8 @@ public:
         }
         return str;
     }
-    std::string printRiscV(RiscvContext*) const override;
-    std::string printBf(BfContext*) const override;
+    std::string printRiscV(std::shared_ptr<RiscvContext> context) const override;
+    std::string printBf(bool compress, std::shared_ptr<BfContext> context) const override;
 };
 
 #endif

@@ -1,5 +1,6 @@
-#include "ast.hpp"
-#include "bf.hpp"
+#include "ast/ast.hpp"
+#include "ir/ir.hpp"
+#include "util.hpp"
 
 #include <cassert>
 #include <cstdio>
@@ -23,14 +24,14 @@ void cat(const char* file) {
     }
 }
 
-int usage(const std::string& name) {
-    cerr << "usage: " + name + " -option1 [-option2, ...] input [-o output]" << endl;
+int usage(string_view name) {
+    cerr << "usage: " << name << " -option1 [-option2, ...] input [-o output]" << endl;
     cerr << "options: -ast | -ir | -koopa | -riscv | -brain" << endl;
     return 1;
 }
 
 int main(int argc, const char* argv[]) {
-    vector<std::string> options;
+    vector<string> options;
     const char* input = nullptr;
     const char* output = nullptr;
     for (int i = 1; i < argc; i++) {
@@ -59,59 +60,66 @@ int main(int argc, const char* argv[]) {
         cerr << "no such file: " << input << endl;
         return 1;
     }
-
-    unique_ptr<BaseAST> ast;
-    if (const auto ret = yyparse(ast)) return ret;
-
     FILE* file;
     if (output) {
         file = fopen(output, "w");
     } else {
         file = stdout;
     }
-    IrObject ir;
+
     try {
-        try {
-            ir = ast->toIR();
-        } catch (const std::logic_error& e) {
-            cerr << RED "[AST error]\n" RESET << e.what() << endl;
-            return 2;
-        }
+        unique_ptr<BaseAST> ast;
+        if (const auto ret = yyparse(ast)) return ret;
+        debugLog("parsed");
+        IrObject ir;
+        auto generate_ir = [&ir, &ast] {
+            if (ir) return;
+            try {
+                ir = ast->toIR();
+            } catch (const logic_error& e) {
+                cerr << RED "[AST error]\n" RESET << e.what() << endl;
+                exit(2);
+            }
+        };
         for (const auto& opt : options) {
             if (opt == "ast") {
                 fprintf(file, "%s\n", ast->toString().c_str());
             } else if (opt == "ir") {
+                generate_ir();
                 fprintf(file, "%s\n", ir->toString().c_str());
             } else if (opt == "koopa") {
+                generate_ir();
                 try {
                     fprintf(file, "%s\n", ir->print().c_str());
-                } catch (const std::logic_error& e) {
+                } catch (const logic_error& e) {
                     cerr << RED "[IR error]\n" RESET << e.what() << endl;
                     return 3;
                 }
             } else if (opt == "riscv") {
+                generate_ir();
                 try {
                     fprintf(file, "%s\n", ir->printRiscV().c_str());
-                } catch (const std::logic_error& e) {
+                } catch (const logic_error& e) {
                     cerr << RED "[ASM error]\n" RESET << e.what() << endl;
                     return 4;
                 }
             } else if (opt == "brain" || opt == "brainz") {
-                std::string bf;
+                generate_ir();
                 try {
-                    bf = ir->printBf();
-                } catch (const std::logic_error& e) {
+                    string bf;
+                    if (opt.back() == 'z') {
+                        bf = ir->printBf(true);
+                    } else {
+                        bf = ir->printBf();
+                    }
+                    fprintf(file, "%s\n", bf.c_str());
+                } catch (const logic_error& e) {
                     cerr << RED "[BF error]\n" RESET << e.what() << endl;
                     return 5;
                 }
-                if (opt.back() == 'z') {
-                    fprintf(file, "%s\n", bfCompress(bf).c_str());
-                } else {
-                    fprintf(file, "%s\n", bf.c_str());
-                }
             }
         }
-    } catch (const std::runtime_error& e) {
+    } catch (const runtime_error& e) {
         cerr << RED "[compiler error]\n" RESET << e.what() << endl;
         return 6;
     }
