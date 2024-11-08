@@ -130,7 +130,7 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
         rets.push_back(std::move(ctx->ret));
     }
     switch (inst) {
-        case Inst::Label: str += format("\n{}:\n", content); break;
+        case Inst::Label: if (content.length()) str += format("\n{}:\n", content); break;
         case Inst::String: ctx->ret = (RiscvContext::Str)(content); break;
         case Inst::Jump: str += format("  j {}\n", content); break;
         case Inst::Branch: {

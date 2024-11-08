@@ -257,7 +257,7 @@ public:
             [](const AstObject& obj) { return obj->toString(); },
             [&](const Container& ctn) {
                 auto& [left, op, right] = ctn;
-                return serializeClass("BinaryExpAST", line, column, op, left, right);
+                return serializeClass("BinaryExpAST", op, left, right);
             });
     }
     IrObject toIR() const override {
@@ -278,8 +278,9 @@ public:
                         auto ir = std::make_unique<MultiValueIR>();
                         auto left_ir = left->toIR();
                         auto right_ir = right->toIR();
-                        std::string short_circuit_label = std::format("right_exp_{}_{}", line, column);
-                        std::string end_label = std::format("end_exp_{}_{}", line, column);
+                        std::string short_circuit_label =
+                            std::format("rightexp_{}_{}", line, column);
+                        std::string end_label = std::format("endexp_{}_{}", line, column);
                         std::string result = std::format("result_{}_{}", line, column);
                         auto new_value = [](auto&&... params) {
                             return std::make_unique<ValueIR>(params...);
@@ -654,7 +655,7 @@ public:
         block_id_tot = 0;
         auto ir = std::make_unique<FunctionIR>(ident);
         auto block_ir = std::make_unique<MultiValueIR>();
-        block_ir->add(std::make_unique<ValueIR>(Inst::Label, "entry"));
+        block_ir->add(std::make_unique<ValueIR>(Inst::Label, ""));
         block_ir->add(block->toIR());
         ir->blocks = std::move(block_ir);
         return ir;

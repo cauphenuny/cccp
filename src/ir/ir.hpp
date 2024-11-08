@@ -211,7 +211,12 @@ public:
         }
         using std::format;
         switch (inst) {
-            case Inst::Label: str += format("\n%{}:\n", content); break;
+            case Inst::Label:
+                if (content.length())
+                    str += format("\n%{}:\n", content);
+                else 
+                    str += format("%{}:\n", "entry");
+                break;
             case Inst::String:
             case Inst::Integer: ctx->ret = content; break;
             case Inst::Load:
