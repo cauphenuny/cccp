@@ -137,7 +137,6 @@ public:
         LVal,    // Lval
     } type;
     AstObject content;
-    PrimaryExpAST(int line, int column) : BaseAST(line, column) {}
     PrimaryExpAST(Type type, AstObject&& obj)
         : BaseAST(obj->line, obj->column), type(type), content(std::move(obj)) {
         content->parent = this;
@@ -572,7 +571,6 @@ public:
         Stmt,
     } type;
     AstObject content;
-    BlockItemAST(int line, int column) : BaseAST(line, column) {}
     BlockItemAST(Type type, AstObject&& _content)
         : BaseAST(_content->line, _content->column), type(type), content(std::move(_content)) {
         content->parent = this;
@@ -586,7 +584,7 @@ public:
     }
 };
 
-inline int _block_id_tot;
+inline int block_id_tot;
 
 class BlockAST : public BaseAST {
 public:
@@ -596,7 +594,7 @@ public:
     }
     void init() override {
         BaseAST::init();
-        scope_id = _block_id_tot++;
+        scope_id = block_id_tot++;
         for (const auto& stmt : stmts) {
             stmt->init();
         }
@@ -625,7 +623,7 @@ public:
         return serializeClass("FuncDefAST", func_type, ident, block);
     }
     IrObject toIR() const override {
-        _block_id_tot = 0;
+        block_id_tot = 0;
         auto ir = std::make_unique<FunctionIR>(ident);
         auto block_ir = std::make_unique<MultiValueIR>();
         block_ir->add(std::make_unique<ValueIR>(Inst::Label, "entry"));

@@ -29,11 +29,6 @@ using namespace std;
 %define parse.error verbose
 %parse-param { std::unique_ptr<BaseAST> &ast }
 
-// yylval 的定义, 我们把它定义成了一个联合体 (union)
-// 因为 token 的值有的是字符串指针, 有的是整数
-// 之前我们在 lexer 中用到的 str_val 和 int_val 就是在这里被定义的
-// 至于为什么要用字符串指针而不直接用 string 或者 unique_ptr<string>?
-// 请自行 STFW 在 union 里写一个带析构函数的类会出现什么情况
 %union {
   struct {
     int line;

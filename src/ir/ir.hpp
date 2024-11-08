@@ -178,7 +178,7 @@ public:
 
 struct BaseIR::IrContext {
     std::string ret;
-    int cnt;
+    int cnt = 0;
 };
 
 class ValueIR : public BaseIR {
@@ -201,13 +201,12 @@ public:
         return serializeClass("ValueIR", inst, content, params);
     }
 
-    std::string print(std::shared_ptr<IrContext> context) const override {
-        assert(context != nullptr);
-        auto ctx = context;
+    std::string print(std::shared_ptr<IrContext> ctx) const override {
+        assert(ctx != nullptr);
         std::string str;
         std::vector<std::string> ret;
         for (const auto& param : params) {
-            str += param->print(context);
+            str += param->print(ctx);
             ret.push_back(ctx->ret);
         }
         using std::format;
@@ -262,7 +261,7 @@ public:
     bool terminated = false;
     std::list<IrObject> values;
 
-    MultiValueIR(auto&&... params) { (this->add(std::move(params)), ...); }
+    explicit MultiValueIR(auto&&... params) { (this->add(std::move(params)), ...); }
 
     std::string toString() const override { return serializeClass("MultipleIR", values); }
 
@@ -276,8 +275,7 @@ public:
 
     void add(IrObject&& value) {
         if (!value) return;
-        auto* value_ir = dynamic_cast<ValueIR*>(value.get());
-        if (value_ir) {
+        if (auto* value_ir = dynamic_cast<ValueIR*>(value.get())) {
             if (value_ir->inst == Inst::Label) terminated = false;
             if (terminated) return;
             values.push_back(std::move(value));
