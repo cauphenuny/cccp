@@ -53,9 +53,12 @@ int main(int argc, const char* argv[]) {
             }
         }
     }
-    if (input == nullptr || options.empty()) return usage(argv[0]);
+    if (options.empty()) return usage(argv[0]);
+    if (input == nullptr)
+        yyin = stdin;
+    else
+        yyin = fopen(input, "r");
 
-    yyin = fopen(input, "r");
     if (!yyin) {
         cerr << "no such file: " << input << endl;
         return 1;

@@ -105,13 +105,13 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
     assert(ctx != nullptr);
     std::string str;
     auto write_to_reg = Visitor{
-        [&](RiscvContext::Stack stack) -> RegisterPtr {
+        [&](RiscvContext::Stack stack) {
             auto reg = ctx->newRegister();
             str += format("  lw\t{}, {}(sp)\n", reg, stack);
             return reg;
         },
-        [&](RiscvContext::Reg&& reg) -> RegisterPtr { return reg; },
-        [&](RiscvContext::Int val) -> RegisterPtr {
+        [&](RiscvContext::Reg&& reg) { return reg; },
+        [&](RiscvContext::Int val) {
             auto reg = ctx->newRegister();
             str += format("  li\t{}, {}\n", reg, val);
             return reg;
@@ -120,7 +120,7 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
             throw runtimeError("can not write string \"{}\" to register", s);
         },
     };
-    auto return_to_stack = [&](RegisterPtr&& reg, int pos) {
+    auto save_to_stack = [&](RegisterPtr&& reg, int pos) {
         str += format("  sw\t{}, {}(sp)\n", reg, pos);
         ctx->ret = (RiscvContext::Stack)pos;
     };
@@ -186,14 +186,14 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
                     break;
                 default: throw runtimeError("not implemented binary operator {}!", content);
             }
-            return_to_stack(std::move(res), ctx->alloc(4));
+            save_to_stack(std::move(res), ctx->alloc(4));
             break;
         }
         case Inst::Load: ctx->ret = (RiscvContext::Stack)(ctx->getVariable(content)); break;
         case Inst::Alloc: ctx->putVariable(content); break;
         case Inst::Store: {
             auto reg = std::visit(write_to_reg, std::move(params_ret[0]));
-            return_to_stack(std::move(reg), ctx->getVariable(content));
+            save_to_stack(std::move(reg), ctx->getVariable(content));
             break;
         }
         case Inst::Integer: ctx->ret = (RiscvContext::Int)(std::stoi(content)); break;

@@ -244,50 +244,40 @@ public:
     }
     IrObject toIR() const override {
         return Match{content}(  //
-            [&](const AstObject& obj) { return obj->toIR(); },
+            [](const AstObject& obj) { return obj->toIR(); },
             [&](const Container& ctn) -> IrObject {
+                auto ir = std::make_unique<MultiValueIR>();
+                auto mkvalue = [](auto&&... params) {
+                    return std::make_unique<ValueIR>(params...);
+                };
                 if (isConstExpr()) {
                     return NumberAST(calc()).toIR();
                 } else {
                     auto& [left, op, right] = ctn;
                     if (op != Operator::lor && op != Operator::land) {
-                        auto ir = std::make_unique<ValueIR>(Inst::Binary);
-                        ir->content = toIrOperatorName(op);
-                        ir->params.push_back(left->toIR());
-                        ir->params.push_back(right->toIR());
-                        return ir;
+                        ir->add(Inst::Binary, toIrOperatorName(op), left->toIR(), right->toIR());
                     } else {
-                        auto ir = std::make_unique<MultiValueIR>();
-                        auto left_ir = left->toIR();
-                        auto right_ir = right->toIR();
-                        std::string short_circuit_label =
-                            std::format("rightexp_{}_{}", line, column);
+                        std::string right_label = std::format("rightexp_{}_{}", line, column);
                         std::string end_label = std::format("endexp_{}_{}", line, column);
                         std::string result = std::format("%ifcond_{}_{}", line, column);
-                        auto new_value = [](auto&&... params) {
-                            return std::make_unique<ValueIR>(params...);
-                        };
-                        auto add = [&](auto&& first, auto&&... params) {
-                            ir->add(new_value(first, params...));
-                        };
-                        add(Inst::Alloc, result);
-                        add(Inst::Store, result,
-                            new_value(Inst::Integer, op == Operator::lor ? "1" : "0"));
+                        ir->add(Inst::Alloc, result);
+                        ir->add(Inst::Store, result,
+                                mkvalue(Inst::Integer, op == Operator::lor ? "1" : "0"));
                         if (op == Operator::lor) {
-                            add(Inst::Branch, "", left_ir, new_value(end_label),
-                                new_value(short_circuit_label));
+                            ir->add(Inst::Branch, "", left->toIR(), mkvalue(end_label),
+                                    mkvalue(right_label));
                         } else if (op == Operator::land) {
-                            add(Inst::Branch, "", left_ir, new_value(short_circuit_label),
-                                new_value(end_label));
+                            ir->add(Inst::Branch, "", left->toIR(), mkvalue(right_label),
+                                    mkvalue(end_label));
                         }
-                        add(Inst::Label, short_circuit_label);
-                        add(Inst::Store, result, right->toIR());
-                        add(Inst::Jump, end_label);
-                        add(Inst::Label, end_label);
-                        add(Inst::Load, result);
-                        return ir;
+                        ir->add(Inst::Label, right_label);
+                        ir->add(Inst::Store, result, right->toIR());
+                        ir->add(Inst::Jump, end_label);
+                        ir->add(Inst::Label, end_label);
+                        ir->add(Inst::Load, result);
                     }
                 }
+                return ir;
             });
     }
     int calc() const override {
@@ -486,13 +476,7 @@ public:
     }
     IrObject toIR() const override {
         auto new_value = [](auto&&... params) { return std::make_unique<ValueIR>(params...); };
-        auto ir = new MultiValueIR();
-        auto add = [&](auto&& first, auto&&... params) {
-            if constexpr (sizeof...(params))
-                ir->add(new_value(first, params...));
-            else
-                ir->add(std::move(first));
-        };
+        auto ir = std::make_unique<MultiValueIR>();
         switch (type) {
             case Expr:
             case Block: {
@@ -502,33 +486,33 @@ public:
                     return nullptr;
             }
             case Return: {
-                add(Inst::Return, "ret", std::get<AstObject>(content)->toIR());
-                break;
+                ir->add(Inst::Return, "ret", std::get<AstObject>(content)->toIR());
+                return ir;
             }
             case Assign: {
                 auto& [raw_lval, raw_exp] = std::get<AssignContainer>(content);
                 auto lval = dynamic_cast<LValAST*>(raw_lval.get());
                 auto exp = dynamic_cast<ExpAST*>(raw_exp.get());
-                add(Inst::Store, lval->getName(), exp->toIR());
-                break;
+                ir->add(Inst::Store, lval->getName(), exp->toIR());
+                return ir;
             }
             case If: {
                 auto& [exp, then_stmt, else_stmt] = std::get<IfContainer>(content);
                 std::string then_label = std::format("if_then_{}_{}", line, column),
                             else_label = std::format("if_else_{}_{}", line, column),
                             end_label = std::format("if_end_{}_{}", line, column);
-                add(Inst::Branch, "", exp->toIR(), new_value(then_label),
-                    new_value(else_stmt ? else_label : end_label));
-                add(Inst::Label, then_label);
-                if (then_stmt) add(then_stmt->toIR());
-                add(Inst::Jump, end_label);
+                ir->add(Inst::Branch, "", exp->toIR(), new_value(then_label),
+                        new_value(else_stmt ? else_label : end_label));
+                ir->add(Inst::Label, then_label);
+                if (then_stmt) ir->add(then_stmt->toIR());
+                ir->add(Inst::Jump, end_label);
                 if (else_stmt) {
-                    add(Inst::Label, else_label);
-                    add(else_stmt->toIR());
-                    add(Inst::Jump, end_label);
+                    ir->add(Inst::Label, else_label);
+                    ir->add(else_stmt->toIR());
+                    ir->add(Inst::Jump, end_label);
                 }
-                add(Inst::Label, end_label);
-                break;
+                ir->add(Inst::Label, end_label);
+                return ir;
             }
             case While: {
                 auto& [exp, stmt] = std::get<WhileContainer>(content);
@@ -536,16 +520,16 @@ public:
                             body_label = std::format("while_body_{}_{}", line, column),
                             end_label = std::format("while_end_{}_{}", line, column);
 
-                add(Inst::Jump, entry_label);
-                add(Inst::Label, entry_label);
-                add(Inst::Branch, "", exp->toIR(), new_value(body_label), new_value(end_label));
+                ir->add(Inst::Jump, entry_label);
+                ir->add(Inst::Label, entry_label);
+                ir->add(Inst::Branch, "", exp->toIR(), new_value(body_label), new_value(end_label));
 
-                add(Inst::Label, body_label);
-                if (stmt) add(stmt->toIR());
-                add(Inst::Jump, entry_label);
+                ir->add(Inst::Label, body_label);
+                if (stmt) ir->add(stmt->toIR());
+                ir->add(Inst::Jump, entry_label);
 
-                add(Inst::Label, end_label);
-                break;
+                ir->add(Inst::Label, end_label);
+                return ir;
             }
             case Break: {
                 StmtAST* while_block = nullptr;
@@ -558,9 +542,9 @@ public:
                     }
                 }
                 if (!while_block) throw compileError("break statement should in a loop");
-                add(Inst::Jump,
-                    std::format("while_end_{}_{}", while_block->line, while_block->column));
-                break;
+                ir->add(Inst::Jump,
+                        std::format("while_end_{}_{}", while_block->line, while_block->column));
+                return ir;
             }
             case Continue: {
                 StmtAST* while_block = nullptr;
@@ -573,15 +557,14 @@ public:
                     }
                 }
                 if (!while_block) throw compileError("continue statement should in a loop");
-                add(Inst::Jump,
-                    std::format("while_entry_{}_{}", while_block->line, while_block->column));
-                break;
+                ir->add(Inst::Jump,
+                        std::format("while_entry_{}_{}", while_block->line, while_block->column));
+                return ir;
             }
             default: {
                 throw runtimeError("unimplemented statement type {}", type);
             }
         }
-        return IrObject(ir);
     }
     friend std::string toString(StmtAST::Type t) {
         switch (t) {
@@ -650,7 +633,7 @@ public:
         scope_id_tot = 0;
         auto ir = std::make_unique<FunctionIR>(ident);
         auto block_ir = std::make_unique<MultiValueIR>();
-        block_ir->add(std::make_unique<ValueIR>(Inst::Label, ""));
+        block_ir->add(Inst::Label, "");
         block_ir->add(block->toIR());
         ir->blocks = std::move(block_ir);
         return ir;

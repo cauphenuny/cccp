@@ -297,6 +297,10 @@ public:
         }
     }
 
+    void add(Inst inst, auto&&... params) {
+        add(std::make_unique<ValueIR>(inst, std::forward<decltype(params)>(params)...));
+    }
+
     std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
     std::string printBf(bool compress, std::shared_ptr<BfContext> ctx) const override;
 
