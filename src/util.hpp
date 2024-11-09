@@ -175,7 +175,7 @@ template <typename... Ts> struct Visitor : Ts... {
     using Ts::operator()...;
 };
 
-template <typename... Ts> Visitor(Ts...) -> Visitor<Ts...>;
+// template <typename... Ts> Visitor(Ts...) -> Visitor<Ts...>;
 
 template <typename T> struct Match {
     T&& value;

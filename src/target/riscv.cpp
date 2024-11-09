@@ -62,7 +62,7 @@ public:
         return symbol_table[name];
     }
     explicit RiscvContext(int limit) : _stack_limit(limit) {}
-    std::string allocStack() {
+    std::string prologue() {
         if (!_stack_limit) return "";
         std::string str;
         if (_stack_limit < (1 << 12)) {
@@ -74,7 +74,7 @@ public:
         }
         return str;
     }
-    std::string freeStack() {
+    std::string epilogue() {
         if (!_stack_limit) return "";
         if (_stack_limit < (1 << 12)) {
             return std::format("  addi\tsp, sp, {}\n", _stack_limit);
@@ -124,36 +124,36 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
         str += format("  sw\t{}, {}(sp)\n", reg, pos);
         ctx->ret = (RiscvContext::Stack)pos;
     };
-    std::vector<decltype(RiscvContext::ret)> rets;
+    std::vector<decltype(RiscvContext::ret)> params_ret;
     for (const auto& param : params) {
         str += param->printRiscV(ctx);
-        rets.push_back(std::move(ctx->ret));
+        params_ret.push_back(std::move(ctx->ret));
     }
     switch (inst) {
         case Inst::Label: if (content.length()) str += format("\n{}:\n", content); break;
         case Inst::String: ctx->ret = (RiscvContext::Str)(content); break;
-        case Inst::Jump: str += format("  j {}\n", content); break;
+        case Inst::Jump: str += format("  j\t{}\n", content); break;
         case Inst::Branch: {
-            auto reg = std::visit(write_to_reg, std::move(rets[0]));
-            str += format("  bnez\t{}, {}\n", reg, std::get<RiscvContext::Str>(rets[1]));
-            str += format("  j {}\n", std::get<RiscvContext::Str>(rets[2]));
+            auto reg = std::visit(write_to_reg, std::move(params_ret[0]));
+            str += format("  bnez\t{}, {}\n", reg, std::get<RiscvContext::Str>(params_ret[1]));
+            str += format("  j\t{}\n", std::get<RiscvContext::Str>(params_ret[2]));
             break;
         }
         case Inst::Return: {
-            Match{std::move(rets[0])}(  //
+            Match{std::move(params_ret[0])}(  //
                 [&](RiscvContext::Int val) { str += format("  li a0, {}\n", val); },
                 [&](RiscvContext::Stack stack) { str += format("  lw a0, {}(sp)\n", stack); },
-                [&](RiscvContext::Reg&& reg) { str += format("  mv a0, {}\n", reg->toString()); },
+                [&](RiscvContext::Reg&& reg) { str += format("  mv a0, {}\n", reg); },
                 [&](RiscvContext::Str&& s) {
                     throw runtimeError("can not return string \"{}\"", s);
                 });
-            str += ctx->freeStack();
+            str += ctx->epilogue();
             str += "  ret\t\n";
             break;
         }
         case Inst::Binary: {
-            auto left = std::visit(write_to_reg, std::move(rets[0]));
-            auto right = std::visit(write_to_reg, std::move(rets[1]));
+            auto left = std::visit(write_to_reg, std::move(params_ret[0]));
+            auto right = std::visit(write_to_reg, std::move(params_ret[1]));
             auto res = ctx->newRegister();
             switch (toOperator(content)) {
                 case Operator::gt: str += format("  sgt\t{}, {}, {}\n", res, left, right); break;
@@ -192,7 +192,7 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
         case Inst::Load: ctx->ret = (RiscvContext::Stack)(ctx->getVariable(content)); break;
         case Inst::Alloc: ctx->putVariable(content); break;
         case Inst::Store: {
-            auto reg = std::visit(write_to_reg, std::move(rets[0]));
+            auto reg = std::visit(write_to_reg, std::move(params_ret[0]));
             return_to_stack(std::move(reg), ctx->getVariable(content));
             break;
         }
@@ -217,7 +217,7 @@ std::string FunctionIR::printRiscV(std::shared_ptr<RiscvContext> context) const 
     size = (int)(std::ceil(size / 16.0) * 16);
     auto ctx = std::make_shared<RiscvContext>(size);
     RiscvContext::RegisterPtr size_reg;
-    str += ctx->allocStack();
+    str += ctx->prologue();
     str += blocks->printRiscV(ctx);
     return str;
 }

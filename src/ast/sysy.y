@@ -53,7 +53,7 @@ using namespace std;
 }
 
 // lexer 返回的所有 token 种类的声明
-%token <pos_val> INT RETURN LAND LOR CONST IF ELSE
+%token <pos_val> INT RETURN LAND LOR CONST IF ELSE WHILE BREAK CONTINUE
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 %token <op_val> REL_OP EQ_OP
@@ -87,8 +87,11 @@ BlockItem     ::= Decl | Stmt;
 Stmt          ::= LVal "=" Exp ";"
                 | [Exp] ";"
                 | Block
+                | "if" "(" Exp ")" Stmt ["else" Stmt]
+                | "while" "(" Exp ")" Stmt
+                | "break" ";"
+                | "continue" ";"
                 | "return" [Exp] ";";
-
 Exp           ::= LOrExp;
 LVal          ::= IDENT;
 PrimaryExp    ::= "(" Exp ")" | LVal | Number;
@@ -110,7 +113,6 @@ CompUnit
     auto comp_unit = new CompUnitAST($1->line, $1->column);
     comp_unit->func_def = unique_ptr<BaseAST>($1);
     comp_unit->func_def->parent = comp_unit;
-    comp_unit->init();
     ast = unique_ptr<CompUnitAST>(comp_unit);
   }
   ;
@@ -170,20 +172,13 @@ Stmt
 
 OpenStmt
   : IF '(' Exp ')' Stmt {
-    auto exp_ast = new BinaryExpAST($3->line, $3->column, (BinaryExpAST::Container){
-      AstObject($3), 
-      Operator::neq, 
-      AstObject(new NumberAST(0))
-    });
-    $$ = new StmtAST($1.line, $1.column, (StmtAST::IfContainer){AstObject(exp_ast), AstObject($5), nullptr});
+    $$ = new StmtAST($1.line, $1.column, (StmtAST::IfContainer){AstObject($3), AstObject($5), nullptr});
   }
   | IF '(' Exp ')' CloseStmt ELSE OpenStmt {
-    auto exp_ast = new BinaryExpAST($3->line, $3->column, (BinaryExpAST::Container){
-      AstObject($3), 
-      Operator::neq, 
-      AstObject(new NumberAST(0))
-    });
-    $$ = new StmtAST($1.line, $1.column, (StmtAST::IfContainer){AstObject(exp_ast), AstObject($5), AstObject($7)});
+    $$ = new StmtAST($1.line, $1.column, (StmtAST::IfContainer){AstObject($3), AstObject($5), AstObject($7)});
+  }
+  | WHILE '(' Exp ')' OpenStmt {
+    $$ = new StmtAST($1.line, $1.column, (StmtAST::WhileContainer){AstObject($3), AstObject($5)});
   }
   ;
 
@@ -192,12 +187,10 @@ CloseStmt
     $$ = $1;
   }
   | IF '(' Exp ')' CloseStmt ELSE CloseStmt {
-    auto exp_ast = new BinaryExpAST($3->line, $3->column, (BinaryExpAST::Container){
-      AstObject($3), 
-      Operator::neq, 
-      AstObject(new NumberAST(0))
-    });
-    $$ = new StmtAST($1.line, $1.column, (StmtAST::IfContainer){AstObject(exp_ast), AstObject($5), AstObject($7)});
+    $$ = new StmtAST($1.line, $1.column, (StmtAST::IfContainer){AstObject($3), AstObject($5), AstObject($7)});
+  }
+  | WHILE '(' Exp ')' CloseStmt {
+    $$ = new StmtAST($1.line, $1.column, (StmtAST::WhileContainer){AstObject($3), AstObject($5)});
   }
   ;
 
@@ -216,6 +209,12 @@ SimpleStmt
   }
   | LVal '=' Exp ';' {
     $$ = new StmtAST(yylineno, yycolumn, (StmtAST::AssignContainer){AstObject($1), AstObject($3)});
+  }
+  | BREAK ';' {
+    $$ = new StmtAST($1.line, $1.column, StmtAST::Break, nullptr);
+  }
+  | CONTINUE ';' {
+    $$ = new StmtAST($1.line, $1.column, StmtAST::Continue, nullptr);
   }
   | Block {
     $$ = new StmtAST(yylineno, yycolumn, StmtAST::Block, AstObject($1));

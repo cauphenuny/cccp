@@ -221,10 +221,10 @@ public:
             case Inst::Integer: ctx->ret = content; break;
             case Inst::Load:
                 ctx->ret = format("%{}", ctx->cnt++);
-                str += format("  {} = load @{}\n", ctx->ret, content);
+                str += format("  {} = load {}\n", ctx->ret, content);
                 break;
-            case Inst::Alloc: str += format("  @{} = alloc {}\n", content, type); break;
-            case Inst::Store: str += format("  store {}, @{}\n", ret[0], content); break;
+            case Inst::Alloc: str += format("  {} = alloc {}\n", content, type); break;
+            case Inst::Store: str += format("  store {}, {}\n", ret[0], content); break;
             case Inst::Binary: {
                 ctx->ret = format("%{}", ctx->cnt++);
                 str += format("  {} = {} {}, {}\n", ctx->ret, content, ret[0], ret[1]);
