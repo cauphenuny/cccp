@@ -361,7 +361,7 @@ std::string ValueIR::printBf(bool compress, std::shared_ptr<BfContext> context) 
             str += std::format("; load @{} to #{}\n", content, ctx.ret);
             str += bfCopy(ctx.tape, ctx.symbol_table[content], ctx.ret);
             break;
-        default: throw runtimeError("not implemented value type {}!", inst); break;
+        default: throw runtimeError("unimplemented value type {}!", inst); break;
     }
     return str;
 }

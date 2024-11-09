@@ -25,7 +25,7 @@ void cat(const char* file) {
 }
 
 int usage(string_view name) {
-    cerr << "usage: " << name << " -option1 [-option2, ...] input [-o output]" << endl;
+    cerr << "usage: " << name << " -option1 [-option2, ...] [input_file] [-o output_file]" << endl;
     cerr << "options: -ast | -ir | -koopa | -riscv | -brain" << endl;
     return 1;
 }

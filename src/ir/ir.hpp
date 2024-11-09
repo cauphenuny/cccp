@@ -233,7 +233,7 @@ public:
             case Inst::Return: str += format("  ret {}\n", ret[0]); break;
             case Inst::Jump: str += format("  jump %{}\n", content); break;
             case Inst::Branch: str += format("  br {}, %{}, %{}\n", ret[0], ret[1], ret[2]); break;
-            default: throw runtimeError("not implemented value type {}!", inst);
+            default: throw runtimeError("unimplemented value type {}!", inst);
         }
         return str;
     }
