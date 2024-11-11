@@ -5,11 +5,9 @@
 #include <format>
 #include <string>
 
-class BaseIR::RiscvContext {
-public:
+struct BaseIR::RiscvContext {
     static constexpr int REG_SIZE = 7;
-    class Register {
-    public:
+    struct Register {
         RiscvContext* ctx = nullptr;
         int idx = -1;
         Register() = default;

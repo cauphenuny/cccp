@@ -1,5 +1,5 @@
-#ifndef UTIL_HPP
-#define UTIL_HPP
+#pragma once
+
 #include <cstring>
 #include <filesystem>
 #include <format>
@@ -189,5 +189,3 @@ template <typename T> struct Match {
 };
 
 template <typename T> Match(T&&) -> Match<T&&>; // make for compiler to deduce type
-
-#endif

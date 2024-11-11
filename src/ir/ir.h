@@ -1,5 +1,4 @@
-#ifndef IR_HPP
-#define IR_HPP
+#pragma once
 
 #include <cassert>
 #include <variant>
@@ -72,10 +71,6 @@ inline std::array<std::pair<Operator, const char*>, 13> name_map = {{
     {Operator::band, "and"}, {Operator::bor, "or"}
 }};
 
-std::string toString(const Operator& oper);
-const char* toIrOperatorName(Operator oper);
-Operator toOperator(const std::string& str);
-
 enum class Inst {
     Unknown, ZeroInit, FuncArgRef, GlobalAlloc, Alloc, Load, Store,
     GetPtr, GetElemPtr, Binary, Branch, Jump, Call, Return,
@@ -83,14 +78,17 @@ enum class Inst {
     Integer, String, Label, 
 };
 
-std::string toString(Inst t);
+auto toString(const Operator& oper) -> std::string;
+auto toIrOperatorName(Operator oper) -> const char*;
+auto toOperator(const std::string& str) -> Operator;
+
+auto toString(Inst t) -> std::string;
 
 // clang-format on
 
-class BaseIR {
-public:
-    class Type;
-    class RiscvContext;
+struct BaseIR {
+    struct Type;
+    struct RiscvContext;
     struct IrContext;
     struct BfContext;
     std::unique_ptr<Type> type;
@@ -106,8 +104,7 @@ public:
 
 using IrObject = std::unique_ptr<BaseIR>;
 
-class BaseIR::Type {
-public:
+struct BaseIR::Type {
     enum class Tag { Unit, Int32, Array, Pointer, Function };
     struct ArrayData {
         std::unique_ptr<Type> base;
@@ -127,8 +124,7 @@ public:
     std::string toString() const;
 };
 
-class ValueIR : public BaseIR {
-public:
+struct ValueIR : public BaseIR {
     Inst inst;
     std::string content;
     std::string comment;
@@ -155,8 +151,7 @@ ValueIR::ValueIR(Inst inst, const std::string& content, auto&&... params) {
     setType();
 }
 
-class MultiValueIR : public BaseIR {
-public:
+struct MultiValueIR : public BaseIR {
     bool terminated = false;
     std::list<IrObject> values;
 
@@ -182,8 +177,7 @@ void MultiValueIR::add(Inst inst, auto&&... params) {
     add(std::make_unique<ValueIR>(inst, std::forward<decltype(params)>(params)...));
 }
 
-class FunctionIR : public BaseIR {
-public:
+struct FunctionIR : public BaseIR {
     std::string name;
     IrObject blocks;
     explicit FunctionIR(const std::string& name);
@@ -195,8 +189,7 @@ public:
     int stackSize() const override;
 };
 
-class ProgramIR : public BaseIR {
-public:
+struct ProgramIR : public BaseIR {
     std::vector<IrObject> global_vars;  // global variables
     std::vector<IrObject> funcs;
     std::string toString() const override;
@@ -204,5 +197,3 @@ public:
     std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
     std::string printBf(bool compress, std::shared_ptr<BfContext> ctx) const override;
 };
-
-#endif

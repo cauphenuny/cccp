@@ -53,13 +53,14 @@ using namespace std;
 }
 
 // lexer 返回的所有 token 种类的声明
-%token <pos_val> INT RETURN LAND LOR CONST IF ELSE WHILE BREAK CONTINUE
+%token <pos_val> INT RETURN LAND LOR CONST IF ELSE WHILE BREAK CONTINUE VOID
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 %token <op_val> REL_OP EQ_OP
 
 // 非终结符的类型定义
 %type <ast_val> FuncDef FuncType Block BlockItem Stmt OpenStmt CloseStmt SimpleStmt
+%type <ast_val> FuncFParams FuncFParam FuncRParams
 %type <ast_val> Decl ConstDecl ConstDef VarType ConstDefList VarDecl VarDef VarDefList
 %type <ast_val> Exp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp LVal Number ConstInitVal InitVal
 %type <op_val> UnaryOp MulOp AddOp
@@ -68,7 +69,7 @@ using namespace std;
 
 /*
 
-CompUnit      ::= FuncDef;
+CompUnit      ::= [CompUnit] FuncDef;
 
 Decl          ::= ConstDecl | VarDecl;
 ConstDecl     ::= "const" BType ConstDef {"," ConstDef} ";";
@@ -79,8 +80,10 @@ VarDecl       ::= BType VarDef {"," VarDef} ";";
 VarDef        ::= IDENT | IDENT "=" InitVal;
 InitVal       ::= Exp;
 
-FuncDef       ::= FuncType IDENT "(" ")" Block;
-FuncType      ::= "int";
+FuncDef       ::= FuncType IDENT "(" [FuncFParams] ")" Block;
+FuncType      ::= "void" | "int";
+FuncFParams   ::= FuncFParam {"," FuncFParam};
+FuncFParam    ::= BType IDENT;
 
 Block         ::= "{" {BlockItem} "}";
 BlockItem     ::= Decl | Stmt;
@@ -97,6 +100,9 @@ LVal          ::= IDENT;
 PrimaryExp    ::= "(" Exp ")" | LVal | Number;
 Number        ::= INT_CONST;
 UnaryExp      ::= PrimaryExp | UnaryOp UnaryExp;
+                | IDENT "(" [FuncRParams] ")"
+                | ...;
+FuncRParams   ::= Exp {"," Exp};
 UnaryOp       ::= "+" | "-" | "!";
 MulExp        ::= UnaryExp | MulExp ("*" | "/" | "%") UnaryExp;
 AddExp        ::= MulExp | AddExp ("+" | "-") MulExp;
@@ -111,31 +117,21 @@ ConstExp      ::= Exp;
 CompUnit
   : FuncDef {
     auto comp_unit = new CompUnitAST($1->line, $1->column);
-    comp_unit->func_def = unique_ptr<BaseAST>($1);
-    comp_unit->func_def->parent = comp_unit;
-    ast = unique_ptr<CompUnitAST>(comp_unit);
+    comp_unit->add(dynamic_cast<FuncDefAST*>($1));
+    ast = unique_ptr<BaseAST>(comp_unit);
   }
   ;
 
 FuncDef
   : FuncType IDENT '(' ')' Block {
-    auto ast = new FuncDefAST($2.line, $2.column);
-    ast->func_type = unique_ptr<BaseAST>($1);
-    ast->func_type->parent = ast;
-
-    ast->ident = *unique_ptr<string>($2.val);
-
-    ast->block = unique_ptr<BaseAST>($5);
-    ast->block->parent = ast;
+    auto ast = new FuncDefAST($2.line, $2.column, AstObject($1), *unique_ptr<string>($2.val), AstObject($5));
     $$ = ast;
   }
   ;
 
-// 同上, 不再解释
 FuncType
   : INT {
-    auto ast = new FuncTypeAST($1.line, $1.column);
-    ast->type = "int";
+    auto ast = new FuncTypeAST($1.line, $1.column, "int");
     $$ = ast;
   }
   ;
@@ -147,14 +143,12 @@ BlockItem
   }
   | BlockItem Decl {
     auto ast = new BlockItemAST(BlockItemAST::Decl, AstObject($2));
-    ast->parent = $1;
-    dynamic_cast<BlockAST*>($1)->stmts.push_back(AstObject(ast));
+    dynamic_cast<BlockAST*>($1)->addItem(AstObject(ast));
     $$ = $1;
   }
   | BlockItem Stmt {
     auto ast = new BlockItemAST(BlockItemAST::Stmt, AstObject($2));
-    ast->parent = $1;
-    dynamic_cast<BlockAST*>($1)->stmts.push_back(AstObject(ast));
+    dynamic_cast<BlockAST*>($1)->addItem(AstObject(ast));
     $$ = $1;
   }
   ;
@@ -223,8 +217,7 @@ SimpleStmt
 
 Exp
   : LOrExp {
-    auto ast = new ExpAST(AstObject($1));
-    $$ = ast;
+    $$ = new ExpAST(AstObject($1));
   }
   ;
 
@@ -392,16 +385,14 @@ LOrExp
 
 LVal
   : IDENT {
-    auto ast = new LValAST($1.line, $1.column);
-    ast->ident = *unique_ptr<string>($1.val);
+    auto ast = new LValAST($1.line, $1.column, *unique_ptr<string>($1.val));
     $$ = ast;
   }
   ;
 
 VarType
   : INT {
-    auto ast = new VarTypeAST($1.line, $1.column);
-    ast->type = "int";
+    auto ast = new VarTypeAST($1.line, $1.column, "int");
     $$ = ast;
   }
 
@@ -422,10 +413,7 @@ ConstInitVal
 
 ConstDef
   : IDENT '=' ConstInitVal {
-    auto ast = new ConstDefAST($1.line, $1.column);
-    $3->parent = ast;
-    ast->ident = *unique_ptr<string>($1.val);
-    ast->init_exp = AstObject($3);
+    auto ast = new ConstDefAST($1.line, $1.column, *unique_ptr<string>($1.val), AstObject($3));
     $$ = ast;
   }
   ;
@@ -433,11 +421,11 @@ ConstDef
 ConstDefList
   : ConstDef {
     auto ast = new ConstDeclAST($1->line, $1->column);
-    $1->parent = ast, ast->const_defs.push_back(AstObject($1));
+    $1->parent = ast, ast->add(dynamic_cast<ConstDefAST*>($1));
     $$ = ast;
   }
   | ConstDefList ',' ConstDef {
-    $3->parent = $1, dynamic_cast<ConstDeclAST*>($1)->const_defs.push_back(AstObject($3));
+    $3->parent = $1, dynamic_cast<ConstDeclAST*>($1)->add(dynamic_cast<ConstDefAST*>($3));
     $$ = $1;
   }
   ;
@@ -445,8 +433,7 @@ ConstDefList
 ConstDecl
   : CONST VarType ConstDefList ';' {
     auto const_def_list = dynamic_cast<ConstDeclAST*>($3);
-    const_def_list->type = AstObject($2);
-    const_def_list->type->parent = $3;
+    const_def_list->setType(dynamic_cast<VarTypeAST*>($2));
     $$ = $3;
   }
   ;
@@ -459,16 +446,11 @@ InitVal
 
 VarDef
   : IDENT {
-    auto ast = new VarDefAST($1.line, $1.column);
-    ast->ident = *unique_ptr<string>($1.val);
-    ast->init_exp = nullptr;
+    auto ast = new VarDefAST($1.line, $1.column, *unique_ptr<string>($1.val), nullptr);
     $$ = ast;
   }
   | IDENT '=' InitVal {
-    auto ast = new VarDefAST($1.line, $1.column);
-    $3->parent = ast;
-    ast->ident = *unique_ptr<string>($1.val);
-    ast->init_exp = AstObject($3);
+    auto ast = new VarDefAST($1.line, $1.column, *unique_ptr<string>($1.val), AstObject($3));
     $$ = ast;
   }
   ;
@@ -476,11 +458,11 @@ VarDef
 VarDefList
   : VarDef {
     auto ast = new VarDeclAST($1->line, $1->column);
-    $1->parent = ast, ast->var_defs.push_back(AstObject($1));
+    $1->parent = ast, ast->add(dynamic_cast<VarDefAST*>($1));
     $$ = ast;
   }
   | VarDefList ',' VarDef {
-    $3->parent = $1, dynamic_cast<VarDeclAST*>($1)->var_defs.push_back(AstObject($3));
+    $3->parent = $1, dynamic_cast<VarDeclAST*>($1)->add(dynamic_cast<VarDefAST*>($3));
     $$ = $1;
   }
   ;
@@ -488,8 +470,7 @@ VarDefList
 VarDecl
   : VarType VarDefList ';' {
     auto def_list = dynamic_cast<VarDeclAST*>($2);
-    def_list->type = AstObject($1);
-    def_list->type->parent = $2;
+    def_list->setType(dynamic_cast<VarTypeAST*>($1));
     $$ = $2;
   }
   ;

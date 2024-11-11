@@ -58,6 +58,7 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 "while"         { yylval.pos_val = {yylineno, yycolumn}; update_column(); return WHILE; }
 "break"         { yylval.pos_val = {yylineno, yycolumn}; update_column(); return BREAK; }
 "continue"      { yylval.pos_val = {yylineno, yycolumn}; update_column(); return CONTINUE; }
+"void"          { yylval.pos_val = {yylineno, yycolumn}; update_column(); return VOID; }
 
 "<"             { yylval.op_val = {Operator::lt, yylineno, yycolumn}; update_column(); return REL_OP; }
 ">"             { yylval.op_val = {Operator::gt, yylineno, yycolumn}; update_column(); return REL_OP; }
