@@ -1,8 +1,8 @@
 %code requires {
   #include <memory>
   #include <string>
-  #include "ast/ast.hpp"
-  #include "ir/ir.hpp"
+  #include "ast/ast.h"
+  #include "ir/ir.h"
   // 添加行列信息的头文件
   extern int yylineno;
   extern int yycolumn;
@@ -13,7 +13,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include "ast/ast.hpp"
+#include "ast/ast.h"
 
 // 声明 lexer 函数和错误处理函数
 int yylex();

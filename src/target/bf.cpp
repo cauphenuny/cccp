@@ -1,4 +1,4 @@
-#include "ir/ir.hpp"
+#include "ir/ir.h"
 #include "util.hpp"
 
 #include <map>
@@ -14,9 +14,9 @@ struct BaseIR::BfContext {
         bool non_zero[MAXN]{0};
     };
     Tape tape;
-    std::map<std::string, int> symbol_table;
+    std::map<std::string, unsigned> symbol_table;
     unsigned pc, global_ret;
-    std::map<std::string, int> labels;
+    std::map<std::string, unsigned> labels;
     int getBlockPC(const std::string& block_name) {
         if (!labels.contains(block_name)) {
             int pc = labels.size() + 1;  // reserve pc=0 for skip
@@ -137,7 +137,7 @@ static std::string bfIf(Tape& tape, unsigned pos, std::function<std::string()> f
 static std::string bfIfElse(Tape& tape, unsigned pos, std::function<std::string()> then_func,
                             std::function<std::string()> else_func) {
     assert(tape.cur_used[pos] && "bad access");
-    const std::string comment1 = std::format("; if ${}\n", pos), comment2 = std::format("; else");
+    const std::string comment1 = std::format("; if ${}\n", pos), comment2 = std::format("; else\n");
     std::string str1, str2;
     unsigned tmp;
     str1 += bfAlloc(tape, tmp);
@@ -487,27 +487,24 @@ std::string FunctionIR::printBf(bool compress, std::shared_ptr<BfContext> contex
     std::string str;
     context = std::make_shared<BfContext>();
 
-    str += bfAlloc(context->tape, context->global_ret);
-    context->symbol_table["$RET"] = context->global_ret;
-    str += bfAlloc(context->tape, context->pc);
-    context->symbol_table["$PC"] = context->pc;
-    debugLog("RET: #{}, PC: #{}", context->ret, context->pc);
-
-    auto alloc = [&](ValueIR* value) {
-        if (value->inst == Inst::Alloc) {
-            unsigned pos;
-            str += bfAlloc(context->tape, pos);
-            context->symbol_table[value->content] = pos;
-            debugLog("alloc cell #{} for variable `{}`", pos, value->content);
-        }
+    auto alloc = [&](const std::string& name) {
+        unsigned pos;
+        str += bfAlloc(context->tape, pos);
+        context->symbol_table[name] = pos;
+        debugLog("alloc cell #{} for variable `{}`", pos, name);
     };
+    alloc("$RET"), alloc("$PC");
+    context->global_ret = context->symbol_table["$RET"];
+    context->pc = context->symbol_table["$PC"];
     std::function<void(BaseIR*)> traverse = [&](BaseIR* base) {
         if (MultiValueIR* multi = dynamic_cast<MultiValueIR*>(base)) {
             for (auto& value : multi->values) {
                 traverse(value.get());
             }
         } else if (ValueIR* value = dynamic_cast<ValueIR*>(base)) {
-            alloc(value);
+            if (value->inst == Inst::Alloc) {
+                alloc(value->content);
+            }
             for (auto& param : value->params) {
                 traverse(param.get());
             }
@@ -528,7 +525,7 @@ std::string FunctionIR::printBf(bool compress, std::shared_ptr<BfContext> contex
     str += bfJump(context->tape, context->global_ret);
 
     std::vector<unsigned> pos;
-    for (unsigned i = 2; i < MAXN; i++) {
+    for (unsigned i = 0; i < MAXN; i++) {
         if (context->tape.cur_used[i]) {
             int flag = 1;
             for (auto& [name, p] : context->symbol_table) {

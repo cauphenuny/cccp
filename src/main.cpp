@@ -1,5 +1,5 @@
-#include "ast/ast.hpp"
-#include "ir/ir.hpp"
+#include "ast/ast.h"
+#include "ir/ir.h"
 #include "util.hpp"
 
 #include <cassert>

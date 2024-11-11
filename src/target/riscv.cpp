@@ -1,4 +1,4 @@
-#include "ir/ir.hpp"
+#include "ir/ir.h"
 #include "util.hpp"
 
 #include <cmath>
@@ -184,7 +184,7 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
                 case Operator::bor:
                     str += format("  {}\t{}, {}, {}\n", content, res, left, right);
                     break;
-                default: throw runtimeError("unimplemented binary operator {}!", content);
+                default: throw runtimeError("unimplemented binary operator `{}`", content);
             }
             save_to_stack(std::move(res), ctx->alloc(4));
             break;
@@ -197,7 +197,7 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
             break;
         }
         case Inst::Integer: ctx->ret = (RiscvContext::Int)(std::stoi(content)); break;
-        default: throw runtimeError("unimplemented value type {}!", inst);
+        default: throw runtimeError("unimplemented value type `{}`", inst);
     }
     return str;
 }

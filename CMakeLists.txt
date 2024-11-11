@@ -59,6 +59,8 @@ file(GLOB_RECURSE CC_SOURCES "src/*.cc")
 set(SOURCES ${C_SOURCES} ${CXX_SOURCES} ${CC_SOURCES}
             ${FLEX_Lexer_OUTPUTS} ${BISON_Parser_OUTPUT_SOURCE})
 
+message(STATUS "SOURCES: ${SOURCES}")
+
 # executable
 add_executable(compiler ${SOURCES})
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")

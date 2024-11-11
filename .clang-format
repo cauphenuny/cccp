@@ -10,7 +10,7 @@ AllowAllParametersOfDeclarationOnNextLine: true
 #AlignConsecutiveAssignments: 'true'
 #AlignConsecutiveDeclarations: 'true'
 SpacesBeforeTrailingComments: 2
-AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortFunctionsOnASingleLine: Empty
 AlwaysBreakTemplateDeclarations: MultiLine
 AllowShortCaseLabelsOnASingleLine: true
 AllowShortIfStatementsOnASingleLine: true
