@@ -175,12 +175,11 @@ template <typename... Ts> struct Visitor : Ts... {
     using Ts::operator()...;
 };
 
-// template <typename... Ts> Visitor(Ts...) -> Visitor<Ts...>;
+template <typename... Ts> Visitor(Ts...) -> Visitor<Ts...>;
 
 template <typename T> struct Match {
-    T&& value;
+    T value;
     Match(T&& value) : value(std::forward<T>(value)) {}
-    Match(T& value) : value(std::forward<T>(value)) {}
     template <typename... Ts> auto operator()(Ts&&... params) {
         return std::visit(Visitor{std::forward<Ts>(params)...}, std::forward<T>(value));
     }
@@ -188,5 +187,7 @@ template <typename T> struct Match {
         return std::visit(visitor, std::forward<T>(value));
     }
 };
+
+template <typename T> Match(T&&) -> Match<T&&>; // make for compiler to deduce type
 
 #endif
