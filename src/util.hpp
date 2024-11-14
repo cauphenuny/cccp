@@ -85,13 +85,15 @@ std::string serialize(const auto& val) {
         return toString(val);
     } else if constexpr (requires { val.toString(); }) {
         return val.toString();
+    } else if constexpr (requires { *val; } && requires { (void*)val; }) {
+        return std::format("{}", (void*)val);
     } else if constexpr (requires { val->toString(); }) {
         if (val)
             return val->toString();
         else
             return "nullptr";
-    } else if constexpr (requires { std::declval<std::ostream>() << val; }) {
-        return (std::ostringstream() << val).str();
+    } else if constexpr (requires { std::format("{}", val); }) {
+        return std::format("{}", val);
     } else {
         static_assert(false, "can not convert to string");
     }
@@ -161,14 +163,18 @@ inline std::string getLocation(std::source_location location = std::source_locat
 #define addLocation(...) \
     "{}{}:{}\n{}", DARK, getLocation(), RESET, addIndent(std::format(__VA_ARGS__), 2)
 
-#define runtimeError(...) std::runtime_error(std::format(addLocation(__VA_ARGS__)))
-
-#define compileError(...) std::logic_error(std::format(addLocation(__VA_ARGS__)))
-
-#ifdef DEBUG
-#    define debugLog(...) std::cerr << tryCompressStr(std::format(addLocation(__VA_ARGS__)))
+#ifndef DEBUG
+#    define runtimeError(...) throw std::runtime_error(std::format(addLocation(__VA_ARGS__)))
+#    define compileError(...) throw std::logic_error(std::format(addLocation(__VA_ARGS__)))
+#    define debugLog(...)     (void)0
 #else
-#    define debugLog(...) (void)0
+#    define runtimeError(...)                                                            \
+        std::cerr << RED "[runtime error]\n" RESET << std::format(addLocation(__VA_ARGS__)), \
+            assert(false)
+#    define compileError(...)                                                            \
+        std::cerr << RED "[compile error]\n" RESET << std::format(addLocation(__VA_ARGS__)), \
+            assert(false)
+#    define debugLog(...) std::cerr << tryCompressStr(std::format(addLocation(__VA_ARGS__)))
 #endif
 
 template <typename... Ts> struct Visitor : Ts... {

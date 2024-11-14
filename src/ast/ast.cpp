@@ -16,6 +16,25 @@ using AstObject = std::unique_ptr<BaseAST>;
 
 BaseAST::BaseAST(int line, int column) : line(line), column(column) {}
 
+static int scope_id_tot = 0;
+ScopeAST::ScopeAST(int line, int column)
+    : BaseAST(line, column), symbol_table(std::make_unique<std::map<std::string, SymbolValue>>()),
+      scope_id(scope_id_tot++) {}
+void ScopeAST::addVar(const std::string& name, SymbolValue v) const {
+    (*symbol_table)[name] = v;
+}
+bool ScopeAST::hasVar(const std::string& name) const {
+    return symbol_table->find(name) != symbol_table->end();
+}
+SymbolValue ScopeAST::getVar(const std::string& name) const {
+    return (*symbol_table)[name];
+}
+std::string ScopeAST::mangledName(const std::string& ident) const {
+    return std::format("@{}_{}", ident, scope_id);
+}
+
+ExpAST::ExpAST(int line, int column) : BaseAST(line, column) {}
+
 FuncTypeAST::FuncTypeAST(int line, int column, const std::string& type)
     : BaseAST(line, column), name(type) {}
 std::string FuncTypeAST::toString() const {
@@ -28,7 +47,7 @@ std::string VarTypeAST::toString() const {
     return serializeClass("VarTypeAST", name);
 }
 
-NumberAST::NumberAST(int num, int line, int column) : BaseAST(line, column), number(num) {}
+NumberAST::NumberAST(int num, int line, int column) : ExpAST(line, column), number(num) {}
 std::string NumberAST::toString() const {
     return serializeClass("NumberAST", number);
 }
@@ -42,25 +61,8 @@ int NumberAST::calc() const {
     return number;
 }
 
-ExpAST::ExpAST(AstObject&& __exp) : BaseAST(__exp->line, __exp->column), exp(std::move(__exp)) {
-    exp->parent = this;
-}
-std::string ExpAST::toString() const {
-    return exp->toString();
-}
-IrObject ExpAST::toIR() const {
-    if (isConstExpr()) return NumberAST(exp->calc()).toIR();
-    return exp->toIR();
-}
-bool ExpAST::isConstExpr() const {
-    return exp->isConstExpr();
-}
-int ExpAST::calc() const {
-    return exp->calc();
-}
-
 LValAST::LValAST(int line, int column, const std::string& name)
-    : BaseAST(line, column), ident(name) {}
+    : ExpAST(line, column), ident(name) {}
 std::string LValAST::toString() const {
     return serializeClass("LValAST", ident);
 }
@@ -73,24 +75,24 @@ IrObject LValAST::toIR() const {
     }
 }
 std::string LValAST::getName() const {
-    auto block = find_ancestor<const BlockAST>(this);
+    auto block = find_ancestor<const ScopeAST>(this);
     while (block) {
         if (block->hasVar(ident)) {
             return block->mangledName(ident);
         }
-        block = find_ancestor<const BlockAST>(block);
+        block = find_ancestor<const ScopeAST>(block);
     }
-    throw compileError("{}:{}: undefined variable: {}", line, column, ident);
+    compileError("{}:{}: undefined variable: {}", line, column, ident);
 }
-VarValue LValAST::getValue() const {
-    auto block = find_ancestor<const BlockAST>(this);
+SymbolValue LValAST::getValue() const {
+    auto block = find_ancestor<const ScopeAST>(this);
     while (block) {
         if (block->hasVar(ident)) {
             return block->getVar(ident);
         }
-        block = find_ancestor<const BlockAST>(block);
+        block = find_ancestor<const ScopeAST>(block);
     }
-    throw compileError("{}:{}: undefined variable: {}", line, column, ident);
+    compileError("{}:{}: undefined variable: {}", line, column, ident);
 }
 bool LValAST::isConstExpr() const {
     auto value = getValue();
@@ -99,12 +101,12 @@ bool LValAST::isConstExpr() const {
 int LValAST::calc() const {
     auto value = getValue();
     if (std::holds_alternative<BaseAST*>(value))
-        throw compileError("{}:{}: not constant variable: {}", line, column, ident);
+        compileError("{}:{}: not constant variable: {}", line, column, ident);
     return std::get<int>(value);
 }
 
-PrimaryExpAST::PrimaryExpAST(Type type, AstObject&& obj)
-    : BaseAST(obj->line, obj->column), type(type), content(std::move(obj)) {
+PrimaryExpAST::PrimaryExpAST(Type type, ExpObject&& exp)
+    : ExpAST(exp->line, exp->column), type(type), content(std::move(exp)) {
     content->parent = this;
 }
 std::string PrimaryExpAST::toString() const {
@@ -123,25 +125,24 @@ int PrimaryExpAST::calc() const {
     return content->calc();
 }
 
-UnaryExpAST::UnaryExpAST(int line, int column) : BaseAST(line, column) {}
-UnaryExpAST::UnaryExpAST(AstObject&& obj)
-    : BaseAST(obj->line, obj->column), content(std::move(obj)) {
-    auto& virtual_exp = std::get<AstObject>(content);
-    virtual_exp->parent = this;
+UnaryExpAST::UnaryExpAST(int line, int column) : ExpAST(line, column) {}
+UnaryExpAST::UnaryExpAST(ExpObject&& obj) : ExpAST(obj->line, obj->column) {
+    obj->parent = this;
+    content = std::move(obj);
 }
 UnaryExpAST::UnaryExpAST(Container&& cont)
-    : BaseAST(cont.unary_exp->line, cont.unary_exp->column), content(std::move(cont)) {
+    : ExpAST(cont.unary_exp->line, cont.unary_exp->column), content(std::move(cont)) {
     auto& real_exp = std::get<Container>(content);
     real_exp.unary_exp->parent = this;
 }
 bool UnaryExpAST::isConstExpr() const {
     return Match{content}(  // for clang-format split line
-        [](const AstObject& obj) { return obj->isConstExpr(); },
+        [](const ExpObject& obj) { return obj->isConstExpr(); },
         [](const Container& ctn) { return ctn.unary_exp->isConstExpr(); });
 }
 std::string UnaryExpAST::toString() const {
     return Match{content}(  //
-        [](const AstObject& obj) { return obj->toString(); },
+        [](const ExpObject& obj) { return obj->toString(); },
         [](const Container& ctn) {
             auto& [op, exp] = ctn;
             return serializeClass("UnaryExpAST", op, exp);
@@ -149,7 +150,7 @@ std::string UnaryExpAST::toString() const {
 }
 IrObject UnaryExpAST::toIR() const {
     return Match{content}(  //
-        [](const AstObject& obj) { return obj->toIR(); },
+        [](const ExpObject& obj) { return obj->toIR(); },
         [](const Container& ctn) -> IrObject {
             auto& [op, exp] = ctn;
             auto ir = std::make_unique<ValueIR>(Inst::Binary);
@@ -161,55 +162,54 @@ IrObject UnaryExpAST::toIR() const {
                     ir->params.push_back(NumberAST(0).toIR());
                     ir->params.push_back(exp->toIR());
                     return ir;
-                default: throw runtimeError("invalid operator {} for unary expression", op);
+                default: runtimeError("invalid operator {} for unary expression", op);
             }
         });
 }
 int UnaryExpAST::calc() const {
     return Match{content}(  //
-        [](const AstObject& obj) { return obj->calc(); },
+        [](const ExpObject& obj) { return obj->calc(); },
         [](const Container& ctn) {
             auto& [op, exp] = ctn;
             return getFunction<int>(op)(0, exp->calc());
         });
 }
 
-BinaryExpAST::BinaryExpAST(AstObject&& obj)
-    : BaseAST(obj->line, obj->column), content(std::move(obj)) {
-    auto& virtual_exp = std::get<AstObject>(content);
-    virtual_exp->parent = this;
+BinaryExpAST::BinaryExpAST(ExpObject&& obj) : ExpAST(obj->line, obj->column) {
+    obj->parent = this;
+    content = std::move(obj);
 }
 BinaryExpAST::BinaryExpAST(int line, int column, Container&& cont)
-    : BaseAST(line, column), content(std::move(cont)) {
+    : ExpAST(line, column), content(std::move(cont)) {
     auto& real_exp = std::get<Container>(content);
-    real_exp.left->parent = this;
-    real_exp.right->parent = this;
+    real_exp.lhs->parent = this;
+    real_exp.rhs->parent = this;
 }
 bool BinaryExpAST::isConstExpr() const {
     return Match{content}(  //
-        [](const AstObject& obj) { return obj->isConstExpr(); },
-        [](const Container& ctn) { return ctn.left->isConstExpr() && ctn.right->isConstExpr(); });
+        [](const ExpObject& obj) { return obj->isConstExpr(); },
+        [](const Container& ctn) { return ctn.lhs->isConstExpr() && ctn.rhs->isConstExpr(); });
 }
 std::string BinaryExpAST::toString() const {
     return Match{content}(  //
-        [](const AstObject& obj) { return obj->toString(); },
+        [](const ExpObject& obj) { return obj->toString(); },
         [&](const Container& ctn) {
-            auto& [left, op, right] = ctn;
-            return serializeClass("BinaryExpAST", op, left, right);
+            auto& [lhs, op, rhs] = ctn;
+            return serializeClass("BinaryExpAST", op, lhs, rhs);
         });
 }
 IrObject BinaryExpAST::toIR() const {
     return Match{content}(  //
-        [](const AstObject& obj) { return obj->toIR(); },
+        [](const ExpObject& obj) { return obj->toIR(); },
         [&](const Container& ctn) -> IrObject {
             auto ir = std::make_unique<MultiValueIR>();
             auto mkvalue = [](auto&&... params) { return std::make_unique<ValueIR>(params...); };
             if (isConstExpr()) {
                 return NumberAST(calc()).toIR();
             } else {
-                auto& [left, op, right] = ctn;
+                auto& [lhs, op, rhs] = ctn;
                 if (op != Operator::lor && op != Operator::land) {
-                    ir->add(Inst::Binary, toIrOperatorName(op), left->toIR(), right->toIR());
+                    ir->add(Inst::Binary, toIrOperatorName(op), lhs->toIR(), rhs->toIR());
                 } else {
                     std::string right_label = std::format("rightexp_{}_{}", line, column);
                     std::string end_label = std::format("endexp_{}_{}", line, column);
@@ -218,14 +218,14 @@ IrObject BinaryExpAST::toIR() const {
                     ir->add(Inst::Store, result,
                             mkvalue(Inst::Integer, op == Operator::lor ? "1" : "0"));
                     if (op == Operator::lor) {
-                        ir->add(Inst::Branch, "", left->toIR(), mkvalue(end_label),
+                        ir->add(Inst::Branch, "", lhs->toIR(), mkvalue(end_label),
                                 mkvalue(right_label));
                     } else if (op == Operator::land) {
-                        ir->add(Inst::Branch, "", left->toIR(), mkvalue(right_label),
+                        ir->add(Inst::Branch, "", lhs->toIR(), mkvalue(right_label),
                                 mkvalue(end_label));
                     }
                     ir->add(Inst::Label, right_label);
-                    ir->add(Inst::Store, result, right->toIR());
+                    ir->add(Inst::Store, result, rhs->toIR());
                     ir->add(Inst::Jump, end_label);
                     ir->add(Inst::Label, end_label);
                     ir->add(Inst::Load, result);
@@ -236,26 +236,26 @@ IrObject BinaryExpAST::toIR() const {
 }
 int BinaryExpAST::calc() const {
     return Match{content}(  //
-        [](const AstObject& obj) { return obj->calc(); },
+        [](const ExpObject& obj) { return obj->calc(); },
         [](const Container& ctn) {
-            auto& [left, op, right] = ctn;
-            return getFunction<int>(op)(left->calc(), right->calc());
+            auto& [lhs, op, rhs] = ctn;
+            return getFunction<int>(op)(lhs->calc(), rhs->calc());
         });
 }
 
-ConstDefAST::ConstDefAST(int line, int column, const std::string& ident, AstObject&& exp)
+ConstDefAST::ConstDefAST(int line, int column, const std::string& ident, ExpObject&& exp)
     : BaseAST(line, column), ident(ident), init_exp(std::move(exp)) {
     init_exp->parent = this;
 }
 void ConstDefAST::writeSymbol() const {
     if (!init_exp->isConstExpr()) {
-        throw compileError("{}:{}: initializer is not a constant expression", line, column);
+        compileError("{}:{}: initializer is not a constant expression", line, column);
     }
-    auto block = find_ancestor<const BlockAST>(this);
+    auto block = find_ancestor<const ScopeAST>(this);
     if (block == nullptr)
-        throw compileError("{}:{}: definition do not belongs to any block", line, column, ident);
+        compileError("{}:{}: definition do not belongs to any block", line, column, ident);
     if (block->hasVar(ident)) {
-        throw compileError("{}:{}: redefined variable: {}", line, column, ident);
+        compileError("{}:{}: redefined variable: {}", line, column, ident);
     }
     block->addVar(ident, init_exp->calc());
 }
@@ -284,7 +284,7 @@ void ConstDeclAST::setType(VarTypeAST* type_) {
     type = AstObject(type_);
 }
 
-VarDefAST::VarDefAST(int line, int column, const std::string& ident, AstObject&& init_exp_)
+VarDefAST::VarDefAST(int line, int column, const std::string& ident, ExpObject&& init_exp_)
     : BaseAST(line, column), ident(ident), init_exp(std::move(init_exp_)) {
     init_exp->parent = this;
 }
@@ -295,23 +295,22 @@ std::string VarDefAST::toString() const {
         return serializeClass("VarDefAST", ident);
 }
 void VarDefAST::writeSymbol() const {
-    auto block = find_ancestor<const BlockAST>(this);
+    auto block = find_ancestor<const ScopeAST>(this);
     if (block == nullptr) {
-        throw compileError("{}:{}: definition do not belongs to any block", line, column, ident);
+        compileError("{}:{}: definition do not belongs to any block", line, column, ident);
     }
-    if (block->hasVar(ident))
-        throw compileError("{}:{}: redefined variable: {}", line, column, ident);
+    if (block->hasVar(ident)) compileError("{}:{}: redefined variable: {}", line, column, ident);
     block->addVar(ident, init_exp.get());
 }
 std::string VarDefAST::getName() const {
-    auto block = find_ancestor<const BlockAST>(this);
+    auto block = find_ancestor<const ScopeAST>(this);
     while (block) {
         if (block->hasVar(ident)) {
             return block->mangledName(ident);
         }
-        block = find_ancestor<const BlockAST>(block);
+        block = find_ancestor<const ScopeAST>(block);
     }
-    throw compileError("{}:{}: undefined variable: {}", line, column, ident);
+    compileError("{}:{}: undefined variable: {}", line, column, ident);
 }
 IrObject VarDefAST::toIR() const {
     writeSymbol();
@@ -414,9 +413,8 @@ IrObject StmtAST::toIR() const {
             return ir;
         }
         case Assign: {
-            auto& [raw_lval, raw_exp] = std::get<AssignContainer>(content);
+            auto& [raw_lval, exp] = std::get<AssignContainer>(content);
             auto lval = dynamic_cast<LValAST*>(raw_lval.get());
-            auto exp = dynamic_cast<ExpAST*>(raw_exp.get());
             ir->add(Inst::Store, lval->getName(), exp->toIR());
             return ir;
         }
@@ -465,7 +463,7 @@ IrObject StmtAST::toIR() const {
                     }
                 }
             }
-            if (!while_block) throw compileError("break statement should be in a loop");
+            if (!while_block) compileError("break statement should be in a loop");
             ir->add(Inst::Jump,
                     std::format("while_end_{}_{}", while_block->line, while_block->column));
             return ir;
@@ -480,13 +478,13 @@ IrObject StmtAST::toIR() const {
                     }
                 }
             }
-            if (!while_block) throw compileError("continue statement should be in a loop");
+            if (!while_block) compileError("continue statement should be in a loop");
             ir->add(Inst::Jump,
                     std::format("while_entry_{}_{}", while_block->line, while_block->column));
             return ir;
         }
         default: {
-            throw runtimeError("unimplemented statement type `{}`", type);
+            runtimeError("unimplemented statement type `{}`", type);
         }
     }
 }
@@ -518,34 +516,18 @@ IrObject BlockItemAST::toIR() const {
     return content->toIR();
 }
 
-static int scope_id_tot;
-BlockAST::BlockAST(int line, int column) : BaseAST(line, column) {
-    symbol_table = std::make_unique<std::map<std::string, VarValue>>();
-    scope_id = scope_id_tot++;
-}
+BlockAST::BlockAST(int line, int column) : ScopeAST(line, column) {}
 std::string BlockAST::toString() const {
     return serializeClass("BlockAST", items);
 }
 IrObject BlockAST::toIR() const {
-    if (scope_id < 0) throw runtimeError("scope id unspecified");
+    if (scope_id < 0) runtimeError("scope id unspecified");
     auto ir = std::make_unique<MultiValueIR>();
     for (const auto& stmt : items) {
         ir->add(stmt->toIR());
     }
     symbol_table->clear();
     return ir;
-}
-void BlockAST::addVar(const std::string& name, VarValue v) const {
-    (*symbol_table)[name] = v;
-}
-bool BlockAST::hasVar(const std::string& name) const {
-    return symbol_table->find(name) != symbol_table->end();
-}
-VarValue BlockAST::getVar(const std::string& name) const {
-    return (*symbol_table)[name];
-}
-std::string BlockAST::mangledName(const std::string& ident) const {
-    return std::format("@{}_{}", ident, scope_id);
 }
 void BlockAST::addItem(AstObject&& item) {
     item->parent = this;
@@ -554,7 +536,7 @@ void BlockAST::addItem(AstObject&& item) {
 
 FuncDefAST::FuncDefAST(int line, int column, AstObject&& type, const std::string& ident,
                        AstObject&& block)
-    : BaseAST(line, column), func_type(std::move(type)), ident(ident), block(std::move(block)) {}
+    : ScopeAST(line, column), func_type(std::move(type)), ident(ident), block(std::move(block)) {}
 std::string FuncDefAST::toString() const {
     return serializeClass("FuncDefAST", func_type, ident, block);
 }
@@ -584,8 +566,8 @@ IrObject CompUnitAST::toIR() const {
 }
 void CompUnitAST::add(FuncDefAST* func_def) {
     if (func_table.find(func_def->name()) != func_table.end()) {
-        throw compileError("{}:{}: redefined function: {}", func_def->line, func_def->column,
-                           func_def->name());
+        compileError("{}:{}: redefined function: {}", func_def->line, func_def->column,
+                     func_def->name());
     }
     func_table[func_def->name()] = func_def;
     func_def->parent = this;

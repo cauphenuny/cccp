@@ -12,22 +12,39 @@ using AstObject = std::unique_ptr<BaseAST>;
 struct BaseAST {
     int line, column;
     BaseAST* parent{nullptr};
-    BaseAST() = delete;
     explicit BaseAST(int line, int column);
     virtual ~BaseAST() = default;
     virtual auto toString() const -> std::string = 0;
     virtual auto toIR() const -> IrObject {
-        throw runtimeError("{}:{}: can not convert {} to IR", line, column, typeid(*this).name());
-    }
-    virtual auto isConstExpr() const -> bool {
-        return false;
-    }
-    virtual auto calc() const -> int {
-        throw runtimeError("{}:{}: can not calculate {}", line, column, typeid(*this).name());
+        runtimeError("{}:{}: can not convert {} to IR", line, column, typeid(*this).name());
     }
 };
 
-struct FuncTypeAST : public BaseAST {
+using SymbolValue = std::variant<BaseAST*, int>;
+
+struct ScopeAST : BaseAST {
+    explicit ScopeAST(int line, int column);
+    virtual ~ScopeAST() = default;
+    void addVar(const std::string& name, SymbolValue value) const;
+    auto hasVar(const std::string& name) const -> bool;
+    auto getVar(const std::string& name) const -> SymbolValue;
+    auto mangledName(const std::string& ident) const -> std::string;
+
+protected:
+    std::unique_ptr<std::map<std::string, SymbolValue>> symbol_table;
+    int scope_id{-1};
+};
+
+struct ExpAST : BaseAST {
+    explicit ExpAST(int line, int column);
+    virtual ~ExpAST() = default;
+    virtual auto isConstExpr() const -> bool = 0;
+    virtual auto calc() const -> int = 0;
+};
+
+using ExpObject = std::unique_ptr<ExpAST>;
+
+struct FuncTypeAST : BaseAST {
     explicit FuncTypeAST(int line, int column, const std::string& name);
     auto toString() const -> std::string override;
 
@@ -35,7 +52,7 @@ private:
     std::string name;
 };
 
-struct VarTypeAST : public BaseAST {
+struct VarTypeAST : BaseAST {
     explicit VarTypeAST(int line, int column, const std::string& name);
     auto toString() const -> std::string override;
 
@@ -43,7 +60,7 @@ private:
     std::string name;
 };
 
-struct NumberAST : public BaseAST {
+struct NumberAST : ExpAST {
     explicit NumberAST(int num, int line = -1, int column = -1);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
@@ -54,39 +71,26 @@ private:
     int number;
 };
 
-struct ExpAST : public BaseAST {
-    explicit ExpAST(AstObject&& _exp);
-    auto toString() const -> std::string override;
-    auto toIR() const -> IrObject override;
-    auto isConstExpr() const -> bool override;
-    auto calc() const -> int override;
-
-private:
-    AstObject exp;
-};
-
-using VarValue = std::variant<BaseAST*, int>;
-
-struct LValAST : public BaseAST {
+struct LValAST : ExpAST {
     explicit LValAST(int line, int column, const std::string& name);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
     auto isConstExpr() const -> bool override;
     auto calc() const -> int override;
     auto getName() const -> std::string;
-    auto getValue() const -> VarValue;
+    auto getValue() const -> SymbolValue;
 
 private:
     std::string ident;
 };
 
-struct PrimaryExpAST : public BaseAST {
+struct PrimaryExpAST : ExpAST {
     enum Type {
         Number,
         Exp,
         LVal,
     };
-    explicit PrimaryExpAST(Type type, AstObject&& obj);
+    explicit PrimaryExpAST(Type type, ExpObject&& obj);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
     auto isConstExpr() const -> bool override;
@@ -94,16 +98,16 @@ struct PrimaryExpAST : public BaseAST {
 
 private:
     Type type;
-    AstObject content;
+    ExpObject content;
 };
 
-struct UnaryExpAST : public BaseAST {
+struct UnaryExpAST : ExpAST {
     struct Container {
         Operator unary_op;
-        AstObject unary_exp;
+        ExpObject unary_exp;
     };
     explicit UnaryExpAST(int line, int column);
-    explicit UnaryExpAST(AstObject&& obj);
+    explicit UnaryExpAST(ExpObject&& obj);
     explicit UnaryExpAST(Container&& cont);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
@@ -111,39 +115,39 @@ struct UnaryExpAST : public BaseAST {
     auto calc() const -> int override;
 
 private:
-    std::variant<AstObject, Container> content;
+    std::variant<ExpObject, Container> content;
 };
 
-struct FuncFParamAST : public BaseAST {
+struct FuncFParamAST : BaseAST {
     explicit FuncFParamAST(int line, int column);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
 
 private:
-    std::vector<std::pair<AstObject, std::string>> _params;
+    std::vector<std::pair<ExpObject, std::string>> params;
 };
 
-struct FuncRParamAST : public BaseAST {
+struct FuncRParamAST : BaseAST {
     explicit FuncRParamAST(int line, int column);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
 
 private:
-    std::vector<AstObject> _params;
+    std::vector<ExpObject> params;
 };
 
-struct FuncCallAST : public BaseAST {
+struct FuncCallAST : BaseAST {
     std::string func_name;
     AstObject params;
 };
 
-struct BinaryExpAST : public BaseAST {
+struct BinaryExpAST : ExpAST {
     struct Container {
-        AstObject left;
+        ExpObject lhs;
         Operator op;
-        AstObject right;
+        ExpObject rhs;
     };
-    explicit BinaryExpAST(AstObject&& obj);
+    explicit BinaryExpAST(ExpObject&& obj);
     explicit BinaryExpAST(int line, int column, Container&& cont);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
@@ -151,21 +155,21 @@ struct BinaryExpAST : public BaseAST {
     auto calc() const -> int override;
 
 private:
-    std::variant<AstObject, Container> content;
+    std::variant<ExpObject, Container> content;
 };
 
-struct ConstDefAST : public BaseAST {
-    explicit ConstDefAST(int line, int column, const std::string& ident, AstObject&& init_exp);
+struct ConstDefAST : BaseAST {
+    explicit ConstDefAST(int line, int column, const std::string& ident, ExpObject&& init_exp);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
     void writeSymbol() const;
 
 private:
     std::string ident;
-    AstObject init_exp;
+    ExpObject init_exp;
 };
 
-struct ConstDeclAST : public BaseAST {
+struct ConstDeclAST : BaseAST {
     explicit ConstDeclAST(int line, int column);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
@@ -177,8 +181,8 @@ private:
     std::vector<AstObject> const_defs;
 };
 
-struct VarDefAST : public BaseAST {
-    explicit VarDefAST(int line, int column, const std::string& ident, AstObject&& init_exp);
+struct VarDefAST : BaseAST {
+    explicit VarDefAST(int line, int column, const std::string& ident, ExpObject&& init_exp);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
     void writeSymbol() const;
@@ -186,10 +190,10 @@ struct VarDefAST : public BaseAST {
 
 private:
     std::string ident;
-    AstObject init_exp;
+    ExpObject init_exp;
 };
 
-struct VarDeclAST : public BaseAST {
+struct VarDeclAST : BaseAST {
     explicit VarDeclAST(int line, int column);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
@@ -201,7 +205,7 @@ private:
     std::vector<AstObject> var_defs;
 };
 
-struct DeclAST : public BaseAST {
+struct DeclAST : BaseAST {
     AstObject decl;
     explicit DeclAST(int line, int column);
     explicit DeclAST(AstObject&& decl);
@@ -209,7 +213,7 @@ struct DeclAST : public BaseAST {
     auto toIR() const -> IrObject override;
 };
 
-struct StmtAST : public BaseAST {
+struct StmtAST : BaseAST {
     enum Type {
         Return,
         Assign,
@@ -224,56 +228,52 @@ struct StmtAST : public BaseAST {
         AstObject lval, exp;
     };
     struct WhileContainer {
-        AstObject exp, stmt;
+        ExpObject exp;
+        AstObject stmt;
     };
     struct IfContainer {
-        AstObject exp, then_stmt, else_stmt;
+        ExpObject exp;
+        AstObject then_stmt, else_stmt;
     };
+    friend auto toString(StmtAST::Type t) -> std::string;
     explicit StmtAST(int line, int column, Type type, AstObject&& content);
     explicit StmtAST(int line, int column, AssignContainer&& assign_stmt);
     explicit StmtAST(int line, int column, IfContainer&& if_stmt);
     explicit StmtAST(int line, int column, WhileContainer&& while_stmt);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
-    friend auto toString(StmtAST::Type t) -> std::string;
 
 private:
     Type type;
     std::variant<AstObject, AssignContainer, IfContainer, WhileContainer> content;
 };
 
-struct BlockItemAST : public BaseAST {
+struct BlockItemAST : BaseAST {
     enum Type {
         Decl,
         Stmt,
     };
+    friend auto toString(Type t) -> std::string;
     explicit BlockItemAST(Type type, AstObject&& _content);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
-    friend auto toString(Type t) -> std::string;
 
 private:
     Type type;
     AstObject content;
 };
 
-struct BlockAST : public BaseAST {
+struct BlockAST : ScopeAST {
     explicit BlockAST(int line, int column);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
-    void addVar(const std::string& name, VarValue value) const;
-    auto hasVar(const std::string& name) const -> bool;
-    auto getVar(const std::string& name) const -> VarValue;
-    std::string mangledName(const std::string& ident) const;
     void addItem(AstObject&& item);
 
 private:
-    std::unique_ptr<std::map<std::string, VarValue>> symbol_table;
     std::vector<AstObject> items;
-    int scope_id{-1};
 };
 
-struct FuncDefAST : public BaseAST {
+struct FuncDefAST : ScopeAST {
     explicit FuncDefAST(int line, int column, AstObject&& type, const std::string& ident,
                         AstObject&& block);
     auto toString() const -> std::string override;
@@ -286,7 +286,7 @@ private:
     AstObject block;
 };
 
-struct CompUnitAST : public BaseAST {
+struct CompUnitAST : BaseAST {
     explicit CompUnitAST(int line, int column);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;

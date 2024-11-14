@@ -380,7 +380,7 @@ static BfBinaryFunction getBfFunction(Operator oper) {
     for (const auto& [op, _] : bf_function_map) {
         ops.push_back(op);
     }
-    throw runtimeError("unimplemented operator {}! (now supports {})", toIrOperatorName(oper), ops);
+    runtimeError("unimplemented operator {}! (now supports {})", toIrOperatorName(oper), ops);
 }
 
 std::string ValueIR::printBf(bool compress, std::shared_ptr<BfContext> context) const {
@@ -408,7 +408,7 @@ std::string ValueIR::printBf(bool compress, std::shared_ptr<BfContext> context) 
         }
         case Inst::Alloc:
             if (!ctx.symbol_table.contains(content))
-                throw runtimeError("unallocated variable {}", content);
+                runtimeError("unallocated variable {}", content);
             // str += bfAlloc(ctx.tape, ctx.ret);
             // str += std::format("; alloc #{} for {}\n", ctx.ret, content);
             // debugLog("alloc #{} for variable {}", ctx.ret, content);
@@ -468,7 +468,7 @@ std::string ValueIR::printBf(bool compress, std::shared_ptr<BfContext> context) 
             };
             break;
         }
-        default: throw runtimeError("unimplemented value type `{}`", inst); break;
+        default: runtimeError("unimplemented value type `{}`", inst); break;
     }
     if (comment.length()) str = comment + addIndent(str);
     if (inst != Inst::Label) return addIndent(str);

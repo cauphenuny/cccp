@@ -1,3 +1,4 @@
+#include "ast/ast.h"
 #include "ir/ir.h"
 #include "util.hpp"
 
@@ -17,7 +18,7 @@ struct BaseIR::RiscvContext {
             ctx = nullptr;
         }
         std::string toString() const {
-            if (idx < 0 || idx > REG_SIZE) throw runtimeError("invalid register %{}", idx);
+            if (idx < 0 || idx > REG_SIZE) runtimeError("invalid register %{}", idx);
             return "t" + std::to_string(idx);
         }
     };
@@ -35,17 +36,17 @@ struct BaseIR::RiscvContext {
                 idx = i;
                 break;
             }
-        if (idx == -1) throw runtimeError("no available register");
+        if (idx == -1) runtimeError("no available register");
         _reg_used[idx] = true;
         return std::make_unique<Register>(this, idx);
     }
     void freeRegister(const Register& reg) {
         debugLog("free {}", reg);
-        if (reg.idx < 0 || reg.idx > REG_SIZE) throw runtimeError("invalid register %{}", reg.idx);
+        if (reg.idx < 0 || reg.idx > REG_SIZE) runtimeError("invalid register %{}", reg.idx);
         _reg_used[reg.idx] = false;
     }
     int alloc(int size) {
-        if (_stack_used + size > _stack_limit) throw runtimeError("stack overflow");
+        if (_stack_used + size > _stack_limit) runtimeError("stack overflow");
         int cur = _stack_used;
         _stack_used += size;
         return cur;
@@ -55,7 +56,7 @@ struct BaseIR::RiscvContext {
         symbol_table[name] = pos;
     }
     int getVariable(std::string name) {
-        if (!symbol_table.contains(name)) throw runtimeError("undefined variable {}", name);
+        if (!symbol_table.contains(name)) runtimeError("undefined variable {}", name);
         debugLog("got {}: {}", name, symbol_table[name]);
         return symbol_table[name];
     }
@@ -115,7 +116,7 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
             return reg;
         },
         [&](RiscvContext::Str&& s) -> RegisterPtr {
-            throw runtimeError("can not write string \"{}\" to register", s);
+            runtimeError("can not write string \"{}\" to register", s);
         },
     };
     auto save_to_stack = [&](RegisterPtr&& reg, int pos) {
@@ -142,47 +143,45 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
                 [&](RiscvContext::Int val) { str += format("  li a0, {}\n", val); },
                 [&](RiscvContext::Stack stack) { str += format("  lw a0, {}(sp)\n", stack); },
                 [&](RiscvContext::Reg&& reg) { str += format("  mv a0, {}\n", reg); },
-                [&](RiscvContext::Str&& s) {
-                    throw runtimeError("can not return string \"{}\"", s);
-                });
+                [&](RiscvContext::Str&& s) { runtimeError("can not return string \"{}\"", s); });
             str += ctx->epilogue();
             str += "  ret\t\n";
             break;
         }
         case Inst::Binary: {
-            auto left = std::visit(write_to_reg, std::move(params_ret[0]));
-            auto right = std::visit(write_to_reg, std::move(params_ret[1]));
+            auto lhs = std::visit(write_to_reg, std::move(params_ret[0]));
+            auto rhs = std::visit(write_to_reg, std::move(params_ret[1]));
             auto res = ctx->newRegister();
             switch (toOperator(content)) {
-                case Operator::gt: str += format("  sgt\t{}, {}, {}\n", res, left, right); break;
-                case Operator::lt: str += format("  slt\t{}, {}, {}\n", res, left, right); break;
+                case Operator::gt: str += format("  sgt\t{}, {}, {}\n", res, lhs, rhs); break;
+                case Operator::lt: str += format("  slt\t{}, {}, {}\n", res, lhs, rhs); break;
                 case Operator::geq:
-                    str += format("  slt\t{}, {}, {}\n", res, left, right);
+                    str += format("  slt\t{}, {}, {}\n", res, lhs, rhs);
                     str += format("  seqz\t{0}, {0}\n", res);
                     break;
                 case Operator::leq:
-                    str += format("  sgt\t{}, {}, {}\n", res, left, right);
+                    str += format("  sgt\t{}, {}, {}\n", res, lhs, rhs);
                     str += format("  seqz\t{0}, {0}\n", res);
                     break;
                 case Operator::neq:
-                    str += format("  xor\t{}, {}, {}\n", res, left, right);
+                    str += format("  xor\t{}, {}, {}\n", res, lhs, rhs);
                     str += format("  seqz\t{0}, {0}\n", res);
                     str += format("  seqz\t{0}, {0}\n", res);
                     break;
                 case Operator::eq:
-                    str += format("  xor\t{}, {}, {}\n", res, left, right);
+                    str += format("  xor\t{}, {}, {}\n", res, lhs, rhs);
                     str += format("  seqz\t{0}, {0}\n", res);
                     break;
-                case Operator::mod: str += format("  rem\t{}, {}, {}\n", res, left, right); break;
+                case Operator::mod: str += format("  rem\t{}, {}, {}\n", res, lhs, rhs); break;
                 case Operator::sub:
                 case Operator::add:
                 case Operator::mul:
                 case Operator::div:
                 case Operator::band:
                 case Operator::bor:
-                    str += format("  {}\t{}, {}, {}\n", content, res, left, right);
+                    str += format("  {}\t{}, {}, {}\n", content, res, lhs, rhs);
                     break;
-                default: throw runtimeError("unimplemented binary operator `{}`", content);
+                default: runtimeError("unimplemented binary operator `{}`", content);
             }
             save_to_stack(std::move(res), ctx->alloc(4));
             break;
@@ -195,7 +194,7 @@ std::string ValueIR::printRiscV(std::shared_ptr<RiscvContext> ctx) const {
             break;
         }
         case Inst::Integer: ctx->ret = (RiscvContext::Int)(std::stoi(content)); break;
-        default: throw runtimeError("unimplemented value type `{}`", inst);
+        default: runtimeError("unimplemented value type `{}`", inst);
     }
     return str;
 }

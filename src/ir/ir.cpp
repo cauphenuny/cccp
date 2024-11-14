@@ -5,19 +5,19 @@
 std::string toString(const Operator& oper) {
     for (const auto& [op, raw] : raw_map)
         if (op == oper) return raw;
-    throw runtimeError("unknown operator: {}", (int)oper);
+    runtimeError("unknown operator: {}", (int)oper);
 }
 
 const char* toIrOperatorName(Operator oper) {
     for (const auto& [op, name] : name_map)
         if (op == oper) return name;
-    throw runtimeError("unknown operator: {}", oper);
+    runtimeError("unknown operator: {}", oper);
 }
 
 Operator toOperator(const std::string& str) {
     for (const auto& [op, name] : name_map)
         if (name == str) return op;
-    throw runtimeError("unknown operator: {}", str);
+    runtimeError("unknown operator: {}", str);
 }
 
 // clang-format off
@@ -44,7 +44,7 @@ BaseIR::BaseIR() : type(std::make_unique<Type>()) {}
 BaseIR::~BaseIR() = default;
 
 int BaseIR::stackSize() const {
-    throw runtimeError("can not calculate stack size for {}", typeid(*this).name());
+    runtimeError("can not calculate stack size for {}", typeid(*this).name());
 }
 
 BaseIR::Type::Type(Tag t) : tag(t) {}
@@ -70,7 +70,7 @@ std::string BaseIR::Type::toString() const {
             }
             return std::format("{}({})", ret, args_str);
         }
-        default: throw runtimeError("invalid type tag {}", (int)tag);
+        default: runtimeError("invalid type tag {}", (int)tag);
     }
 }
 
@@ -116,7 +116,7 @@ std::string ValueIR::print(std::shared_ptr<IrContext> ctx) const {
         case Inst::Return: str += format("  ret {}\n", ret[0]); break;
         case Inst::Jump: str += format("  jump %{}\n", content); break;
         case Inst::Branch: str += format("  br {}, %{}, %{}\n", ret[0], ret[1], ret[2]); break;
-        default: throw runtimeError("unimplemented value type `{}`", inst);
+        default: runtimeError("unimplemented value type `{}`", inst);
     }
     return str;
 }
@@ -166,7 +166,7 @@ void MultiValueIR::add(IrObject&& value) {
             add(std::move(val));
         }
     } else {
-        throw runtimeError("invalid value type {}", typeid(value).name());
+        runtimeError("invalid value type {}", typeid(value).name());
     }
 }
 
