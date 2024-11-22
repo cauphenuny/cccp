@@ -194,4 +194,4 @@ template <typename T> struct Match {
     }
 };
 
-template <typename T> Match(T&&) -> Match<T&&>; // make for compiler to deduce type
+template <typename T> Match(T&&) -> Match<T&&>; // make for compiler to reserve reference mark

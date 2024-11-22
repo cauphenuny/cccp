@@ -51,7 +51,7 @@ BaseIR::Type::Type(Tag t) : tag(t) {}
 
 std::string BaseIR::Type::toString() const {
     switch (tag) {
-        case Tag::Unit: return "unit";
+        case Tag::Void: return "void";
         case Tag::Int32: return "i32";
         case Tag::Array: {
             auto& [base, size] = std::get<ArrayData>(data);
@@ -64,11 +64,17 @@ std::string BaseIR::Type::toString() const {
         case Tag::Function: {
             auto& [ret, args] = std::get<FunctionData>(data);
             std::string args_str;
-            for (const auto& arg : args) {
+            for (const auto& [type, name] : args) {
                 if (!args_str.empty()) args_str += ", ";
-                args_str += arg->toString();
+                if (name.empty())
+                    args_str += type->toString();
+                else
+                    args_str += std::format("@{}: {}", name, type);
             }
-            return std::format("{}({})", ret, args_str);
+            if (ret->tag == Tag::Void)
+                return std::format("({})", args_str);
+            else
+                return std::format("({}): {}", args_str, ret);
         }
         default: runtimeError("invalid type tag {}", (int)tag);
     }
@@ -113,9 +119,29 @@ std::string ValueIR::print(std::shared_ptr<IrContext> ctx) const {
             str += format("  {} = {} {}, {}\n", ctx->ret, content, ret[0], ret[1]);
             break;
         }
-        case Inst::Return: str += format("  ret {}\n", ret[0]); break;
+        case Inst::Return:
+            if (ret.size())
+                str += format("  ret {}\n", ret[0]);
+            else
+                str += "  ret\n";
+            break;
         case Inst::Jump: str += format("  jump %{}\n", content); break;
         case Inst::Branch: str += format("  br {}, %{}, %{}\n", ret[0], ret[1], ret[2]); break;
+        case Inst::Call: {
+            std::string param_str;
+            for (auto r : ret) {
+                if (param_str.length()) param_str += ", ";
+                param_str += r;
+            }
+            auto& [ret, args] = std::get<BaseIR::Type::FunctionData>(type->data);
+            if (ret->tag != BaseIR::Type::Tag::Void) {
+                ctx->ret = format("%{}", ctx->cnt++);
+                str += format("  {} = call @{}({})\n", ctx->ret, content, param_str);
+            } else {
+                str += format("  call @{}({})\n", content, param_str);
+            }
+            break;
+        }
         default: runtimeError("unimplemented value type `{}`", inst);
     }
     return str;
@@ -151,10 +177,18 @@ std::string MultiValueIR::print(std::shared_ptr<IrContext> ctx) const {
     return str;
 }
 
+void MultiValueIR::endBlock() {
+    if (!terminated && this->values.size()) add(std::make_unique<ValueIR>(Inst::Return));
+    terminated = true;
+}
+
 void MultiValueIR::add(IrObject&& value) {
     if (!value) return;
     if (auto* value_ir = dynamic_cast<ValueIR*>(value.get())) {
-        if (value_ir->inst == Inst::Label) terminated = false;
+        if (value_ir->inst == Inst::Label) {
+            endBlock();
+            terminated = false;
+        }
         if (terminated) return;
         values.push_back(std::move(value));
         if (value_ir->inst == Inst::Return || value_ir->inst == Inst::Branch ||
@@ -178,7 +212,8 @@ int MultiValueIR::stackSize() const {
     return size;
 }
 
-FunctionIR::FunctionIR(const std::string& name) : name(name) {
+FunctionIR::FunctionIR(const std::string& name, const std::string& params)
+    : name(name), params(params) {
     type = std::make_unique<Type>(Type::Tag::Int32);
 }
 
@@ -188,8 +223,9 @@ std::string FunctionIR::print(std::shared_ptr<IrContext>) const {
     std::shared_ptr<IrContext> ctx = std::make_shared<IrContext>();
     ctx->ret = "";
     ctx->cnt = 0;
+    blocks->endBlock();
     std::string blocks_str = blocks->print(ctx);
-    return std::format("fun @{}(): {} {{\n{}}}\n", name, type, blocks_str);
+    return std::format("fun @{}{} {{\n{}}}\n", name, type, addIndent(blocks_str));
 }
 
 int FunctionIR::stackSize() const { return blocks->stackSize(); }
@@ -204,7 +240,7 @@ std::string ProgramIR::print(std::shared_ptr<IrContext>) const {
     //     // TODO:
     // }
     for (const auto& func : funcs) {
-        str += func->print();
+        str += func->print() + "\n";
     }
     return str;
 }

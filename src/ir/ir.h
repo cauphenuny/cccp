@@ -1,12 +1,12 @@
 #pragma once
 
 #include <cassert>
-#include <variant>
-#include <memory>
-#include <functional>
 #include <list>
+#include <memory>
 #include <string>
+#include <variant>
 #include <vector>
+#include <functional>
 
 enum class Operator : unsigned {
     no,    //!
@@ -74,7 +74,7 @@ inline std::array<std::pair<Operator, const char*>, 13> name_map = {{
 enum class Inst {
     Unknown, ZeroInit, FuncArgRef, GlobalAlloc, Alloc, Load, Store,
     GetPtr, GetElemPtr, Binary, Branch, Jump, Call, Return,
-    // non-instrument values
+    // values that are not instructions
     Integer, String, Label, 
 };
 
@@ -105,7 +105,7 @@ struct BaseIR {
 using IrObject = std::unique_ptr<BaseIR>;
 
 struct BaseIR::Type {
-    enum class Tag { Unit, Int32, Array, Pointer, Function };
+    enum class Tag { Void, Int32, Array, Pointer, Function };
     struct ArrayData {
         std::unique_ptr<Type> base;
         int size;
@@ -115,7 +115,7 @@ struct BaseIR::Type {
     };
     struct FunctionData {
         std::unique_ptr<Type> ret;
-        std::vector<std::unique_ptr<Type>> args;
+        std::vector<std::pair<std::unique_ptr<Type>, std::string>> args;
     };
     Tag tag;
     std::variant<std::monostate, ArrayData, PointerData, FunctionData> data;
@@ -161,6 +161,7 @@ struct MultiValueIR : public BaseIR {
 
     void add(IrObject&& value);
     void add(Inst inst, auto&&... params);
+    void endBlock();
 
     std::string print(std::shared_ptr<IrContext> ctx) const override;
     std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
@@ -178,9 +179,9 @@ void MultiValueIR::add(Inst inst, auto&&... params) {
 }
 
 struct FunctionIR : public BaseIR {
-    std::string name;
-    IrObject blocks;
-    explicit FunctionIR(const std::string& name);
+    std::string name, params;
+    std::unique_ptr<MultiValueIR> blocks;
+    explicit FunctionIR(const std::string& name, const std::string& params);
 
     std::string toString() const override;
     std::string print(std::shared_ptr<IrContext>) const override;

@@ -51,6 +51,18 @@ using namespace std;
   } op_val;
   BaseAST* ast_val;
   ExpAST* exp_val;
+  CompUnitAST* comp_unit_val;
+  FuncTypeAST* func_type_val;
+  FuncDefAST* func_def_val;
+  BlockAST* block_val;
+  ConstDefAST* const_def_val;
+  VarDefAST* var_def_val;
+  ConstDeclAST* const_decl_val;
+  VarDeclAST* var_decl_val;
+  VarTypeAST* var_type_val;
+  FuncFParamAST* func_f_param_val;
+  FuncFParamsAST* func_f_params_val;
+  FuncRParamsAST* func_r_params_val;
 }
 
 // lexer 返回的所有 token 种类的声明
@@ -60,11 +72,22 @@ using namespace std;
 %token <op_val> REL_OP EQ_OP
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType Block BlockItem Stmt OpenStmt CloseStmt SimpleStmt
-%type <ast_val> FuncFParams FuncFParam FuncRParams
-%type <ast_val> Decl ConstDecl ConstDef VarType ConstDefList VarDecl VarDef VarDefList
+%type <comp_unit_val> CompUnit
+%type <func_def_val> FuncDef
+%type <block_val> BlockItem
+%type <const_def_val> ConstDef
+%type <const_decl_val> ConstDefList
+%type <var_def_val> VarDef
+%type <var_decl_val> VarDefList
+%type <var_type_val> VarType
+%type <func_type_val> FuncType
+%type <ast_val> Block Stmt OpenStmt CloseStmt SimpleStmt
+%type <ast_val> Decl ConstDecl VarDecl 
 %type <exp_val> Exp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp LVal Number ConstInitVal InitVal
 %type <op_val> UnaryOp MulOp AddOp
+%type <func_f_param_val> FuncFParam
+%type <func_f_params_val> FuncFParams
+%type <func_r_params_val> FuncRParams
 
 %%
 
@@ -115,41 +138,82 @@ ConstExp      ::= Exp;
 
 */
 
+Wrap
+  : CompUnit {
+    ast = AstObject($1);
+  }
+  ;
+
 CompUnit
   : FuncDef {
-    auto comp_unit = new CompUnitAST($1->line, $1->column);
-    comp_unit->add(dynamic_cast<FuncDefAST*>($1));
-    ast = unique_ptr<BaseAST>(comp_unit);
+    auto comp_unit = new CompUnitAST(0, 0);
+    comp_unit->add($1);
+    $$ = comp_unit;
+  }
+  | CompUnit FuncDef {
+    $1->add($2);
+    $$ = $1;
   }
   ;
 
 FuncDef
   : FuncType IDENT '(' ')' Block {
-    auto ast = new FuncDefAST($2.line, $2.column, AstObject($1), *unique_ptr<string>($2.val), AstObject($5));
-    $$ = ast;
+    $$ = new FuncDefAST($2.line, $2.column, $1, *unique_ptr<string>($2.val), nullptr, AstObject($5));
+  }
+  | FuncType IDENT '(' FuncFParams ')' Block {
+    $$ = new FuncDefAST($2.line, $2.column, $1, *unique_ptr<string>($2.val), $4, AstObject($6));
   }
   ;
 
 FuncType
   : INT {
-    auto ast = new FuncTypeAST($1.line, $1.column, "int");
+    $$ = new FuncTypeAST($1.line, $1.column, "int");
+  }
+  | VOID {
+    $$ = new FuncTypeAST($1.line, $1.column, "void");
+  }
+  ;
+
+FuncFParam
+  : VarType IDENT {
+    $$ = new FuncFParamAST($2.line, $2.column, $1, *unique_ptr<string>($2.val));
+  }
+  ;
+
+FuncFParams
+  : FuncFParam {
+    auto ast = new FuncFParamsAST($1->line, $1->column);
+    ast->add($1);
     $$ = ast;
+  }
+  | FuncFParams ',' FuncFParam {
+    $1->add($3);
+    $$ = $1;
+  }
+  ;
+
+FuncRParams
+  : Exp {
+    auto ast = new FuncRParamsAST($1->line, $1->column);
+    ast->add($1);
+    $$ = ast;
+  }
+  | FuncRParams ',' Exp {
+    $1->add($3);
+    $$ = $1;
   }
   ;
 
 BlockItem
   : {
-    auto ast = new BlockAST(yylineno, yycolumn);
-    $$ = ast;
+    $$ = new BlockAST(yylineno, yycolumn);
   }
   | BlockItem Decl {
-    auto ast = new BlockItemAST(BlockItemAST::Decl, AstObject($2));
-    dynamic_cast<BlockAST*>($1)->addItem(AstObject(ast));
+    $1->addItem(AstObject(new BlockItemAST(BlockItemAST::Decl, AstObject($2))));
     $$ = $1;
   }
   | BlockItem Stmt {
-    auto ast = new BlockItemAST(BlockItemAST::Stmt, AstObject($2));
-    dynamic_cast<BlockAST*>($1)->addItem(AstObject(ast));
+    $1->addItem(AstObject(new BlockItemAST(BlockItemAST::Stmt, AstObject($2))));
     $$ = $1;
   }
   ;
@@ -224,37 +288,43 @@ Exp
 
 PrimaryExp
   : '(' Exp ')' {
-    auto ast = new PrimaryExpAST(PrimaryExpAST::Exp, ExpObject($2));
-    $$ = ast;
+    $$ = new PrimaryExpAST(PrimaryExpAST::Exp, ExpObject($2));
   }
   | Number {
-    auto ast = new PrimaryExpAST(PrimaryExpAST::Number, ExpObject($1));
-    $$ = ast;
+    $$ = new PrimaryExpAST(PrimaryExpAST::Number, ExpObject($1));
   }
   | LVal {
-    auto ast = new PrimaryExpAST(PrimaryExpAST::LVal, ExpObject($1));
-    $$ = ast;
+    $$ = new PrimaryExpAST(PrimaryExpAST::LVal, ExpObject($1));
   }
   ;
 
 Number
   : INT_CONST {
-    auto ast = new NumberAST($1.val, $1.line, $1.column);
-    $$ = ast;
+    $$ = new NumberAST($1.val, $1.line, $1.column);
   }
   ;
 
 UnaryExp
   : PrimaryExp {
-    auto ast = new UnaryExpAST(ExpObject($1));
-    $$ = ast;
+    $$ = new UnaryExpAST(ExpObject($1));
   }
   | UnaryOp UnaryExp {
-    auto ast = new UnaryExpAST((UnaryExpAST::Container) {
+    $$ = new UnaryExpAST($1.line, $1.column, (UnaryExpAST::ExpContainer) {
       .unary_op  = $1.val, 
       .unary_exp = ExpObject($2)
     });
-    $$ = ast;
+  }
+  | IDENT '(' ')' {
+    $$ = new UnaryExpAST($1.line, $1.column, (UnaryExpAST::FuncCallContainer) {
+      .func_name = *unique_ptr<string>($1.val),
+      .params = nullptr
+    });
+  }
+  | IDENT '(' FuncRParams ')' {
+    $$ = new UnaryExpAST($1.line, $1.column, (UnaryExpAST::FuncCallContainer) {
+      .func_name = *unique_ptr<string>($1.val),
+      .params = std::unique_ptr<FuncRParamsAST>($3)
+    });
   }
   ;
 
@@ -277,67 +347,58 @@ AddOp
 
 MulExp
   : UnaryExp {
-    auto ast = new BinaryExpAST(ExpObject($1));
-    $$ = ast;
+    $$ = new BinaryExpAST(ExpObject($1));
   }
   | MulExp MulOp UnaryExp {
-    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
+    $$ = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .lhs = ExpObject($1),
       .op = $2.val,
       .rhs = ExpObject($3)
     });
-    $$ = ast;
   }
 
 AddExp
   : MulExp {
-    auto ast = new BinaryExpAST(ExpObject($1));
-    $$ = ast;
+    $$ = new BinaryExpAST(ExpObject($1));
   }
   | AddExp AddOp MulExp {
-    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
+    $$ = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .lhs = ExpObject($1),
       .op = $2.val,
       .rhs = ExpObject($3)
     });
-    $$ = ast;
   }
   ;
 
 RelExp
   : AddExp {
-    auto ast = new BinaryExpAST(ExpObject($1));
-    $$ = ast;
+    $$ = new BinaryExpAST(ExpObject($1));
   }
   | RelExp REL_OP AddExp {
-    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
+    $$ = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .lhs = ExpObject($1),
       .op = $2.val,
       .rhs = ExpObject($3)
     });
-    $$ = ast;
   }
   ;
 
 EqExp
   : RelExp {
-    auto ast = new BinaryExpAST(ExpObject($1));
-    $$ = ast;
+    $$ = new BinaryExpAST(ExpObject($1));
   }
   | EqExp EQ_OP RelExp {
-    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
+    $$ = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .lhs = ExpObject($1),
       .op = $2.val,
       .rhs = ExpObject($3)
     });
-    $$ = ast;
   }
   ;
 
 LAndExp
   : EqExp {
-    auto ast = new BinaryExpAST(ExpObject($1));
-    $$ = ast;
+    $$ = new BinaryExpAST(ExpObject($1));
   }
   | LAndExp LAND EqExp {
     auto ast_left = new BinaryExpAST($1->line, $1->column, (BinaryExpAST::Container) {
@@ -350,19 +411,17 @@ LAndExp
       .op = Operator::neq,
       .rhs = ExpObject(new NumberAST(0, $3->line, $3->column))
     });
-    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
+    $$ = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .lhs = ExpObject(ast_left),
       .op = Operator::land,
       .rhs = ExpObject(ast_right)
     });
-    $$ = ast;
   }
   ;
 
 LOrExp
   : LAndExp {
-    auto ast = new BinaryExpAST(ExpObject($1));
-    $$ = ast;
+    $$ = new BinaryExpAST(ExpObject($1));
   }
   | LOrExp LOR LAndExp {
     auto ast_left = new BinaryExpAST($1->line, $1->column, (BinaryExpAST::Container) {
@@ -375,26 +434,23 @@ LOrExp
       .op = Operator::neq,
       .rhs = ExpObject(new NumberAST(0, $3->line, $3->column))
     });
-    auto ast = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
+    $$ = new BinaryExpAST($2.line, $2.column, (BinaryExpAST::Container) {
       .lhs = ExpObject(ast_left),
       .op = Operator::lor,
       .rhs = ExpObject(ast_right)
     });
-    $$ = ast;
   }
   ;
 
 LVal
   : IDENT {
-    auto ast = new LValAST($1.line, $1.column, *unique_ptr<string>($1.val));
-    $$ = ast;
+    $$ = new LValAST($1.line, $1.column, *unique_ptr<string>($1.val));
   }
   ;
 
 VarType
   : INT {
-    auto ast = new VarTypeAST($1.line, $1.column, "int");
-    $$ = ast;
+    $$ = new VarTypeAST($1.line, $1.column, "int");
   }
 
 Decl
@@ -414,27 +470,25 @@ ConstInitVal
 
 ConstDef
   : IDENT '=' ConstInitVal {
-    auto ast = new ConstDefAST($1.line, $1.column, *unique_ptr<string>($1.val), ExpObject($3));
-    $$ = ast;
+    $$ = new ConstDefAST($1.line, $1.column, *unique_ptr<string>($1.val), ExpObject($3));
   }
   ;
 
 ConstDefList
   : ConstDef {
     auto ast = new ConstDeclAST($1->line, $1->column);
-    $1->parent = ast, ast->add(dynamic_cast<ConstDefAST*>($1));
+    ast->add($1);
     $$ = ast;
   }
   | ConstDefList ',' ConstDef {
-    $3->parent = $1, dynamic_cast<ConstDeclAST*>($1)->add(dynamic_cast<ConstDefAST*>($3));
+    $1->add($3);
     $$ = $1;
   }
   ;
 
 ConstDecl
   : CONST VarType ConstDefList ';' {
-    auto const_def_list = dynamic_cast<ConstDeclAST*>($3);
-    const_def_list->setType(dynamic_cast<VarTypeAST*>($2));
+    $3->setType($2);
     $$ = $3;
   }
   ;
@@ -447,31 +501,28 @@ InitVal
 
 VarDef
   : IDENT {
-    auto ast = new VarDefAST($1.line, $1.column, *unique_ptr<string>($1.val), nullptr);
-    $$ = ast;
+    $$ = new VarDefAST($1.line, $1.column, *unique_ptr<string>($1.val), nullptr);
   }
   | IDENT '=' InitVal {
-    auto ast = new VarDefAST($1.line, $1.column, *unique_ptr<string>($1.val), ExpObject($3));
-    $$ = ast;
+    $$ = new VarDefAST($1.line, $1.column, *unique_ptr<string>($1.val), ExpObject($3));
   }
   ;
 
 VarDefList
   : VarDef {
     auto ast = new VarDeclAST($1->line, $1->column);
-    $1->parent = ast, ast->add(dynamic_cast<VarDefAST*>($1));
+    ast->add($1);
     $$ = ast;
   }
   | VarDefList ',' VarDef {
-    $3->parent = $1, dynamic_cast<VarDeclAST*>($1)->add(dynamic_cast<VarDefAST*>($3));
+    $1->add($3);
     $$ = $1;
   }
   ;
 
 VarDecl
   : VarType VarDefList ';' {
-    auto def_list = dynamic_cast<VarDeclAST*>($2);
-    def_list->setType(dynamic_cast<VarTypeAST*>($1));
+    $2->setType($1);
     $$ = $2;
   }
   ;

@@ -3,6 +3,8 @@
 #include "ir/ir.h"
 #include "util.hpp"
 
+#include <map>
+#include <memory>
 #include <string>
 #include <variant>
 
@@ -16,7 +18,7 @@ struct BaseAST {
     virtual ~BaseAST() = default;
     virtual auto toString() const -> std::string = 0;
     virtual auto toIR() const -> IrObject {
-        runtimeError("{}:{}: can not convert {} to IR", line, column, typeid(*this).name());
+        runtimeError("toIR() not implemented for {}", typeid(*this).name());
     }
 };
 
@@ -28,7 +30,7 @@ struct ScopeAST : BaseAST {
     void addVar(const std::string& name, SymbolValue value) const;
     auto hasVar(const std::string& name) const -> bool;
     auto getVar(const std::string& name) const -> SymbolValue;
-    auto mangledName(const std::string& ident) const -> std::string;
+    auto mangleIdent(const std::string& ident) const -> std::string;
 
 protected:
     std::unique_ptr<std::map<std::string, SymbolValue>> symbol_table;
@@ -47,6 +49,8 @@ using ExpObject = std::unique_ptr<ExpAST>;
 struct FuncTypeAST : BaseAST {
     explicit FuncTypeAST(int line, int column, const std::string& name);
     auto toString() const -> std::string override;
+    auto toIR() const -> IrObject override;
+    auto getIrType() const -> std::unique_ptr<BaseIR::Type>;
 
 private:
     std::string name;
@@ -55,6 +59,8 @@ private:
 struct VarTypeAST : BaseAST {
     explicit VarTypeAST(int line, int column, const std::string& name);
     auto toString() const -> std::string override;
+    auto toIR() const -> IrObject override;
+    auto print() const -> std::string;
 
 private:
     std::string name;
@@ -101,44 +107,60 @@ private:
     ExpObject content;
 };
 
+struct FuncFParamAST : BaseAST {
+    explicit FuncFParamAST(int line, int column, VarTypeAST* type, const std::string& ident);
+    auto toString() const -> std::string override;
+    auto toIR() const -> IrObject override;
+    auto name() const -> std::string;
+    auto type() const -> VarTypeAST*;
+    auto getIrType() const -> decltype(BaseIR::Type::FunctionData::args)::value_type;
+
+private:
+    std::string ident;
+    std::unique_ptr<VarTypeAST> type_;
+};
+
+struct FuncFParamsAST : BaseAST {
+    explicit FuncFParamsAST(int line, int column);
+    auto toString() const -> std::string override;
+    auto toIR() const -> IrObject override;
+    void add(FuncFParamAST*);
+    auto print() const -> std::string;
+    auto getIrType() const -> decltype(BaseIR::Type::FunctionData::args);
+
+private:
+    std::vector<std::unique_ptr<FuncFParamAST>> params;
+};
+
+struct FuncRParamsAST : BaseAST {
+    explicit FuncRParamsAST(int line, int column);
+    auto toString() const -> std::string override;
+    // auto toIR() const -> IrObject override;
+    void add(ExpAST* exp);
+
+    std::vector<ExpObject> params;
+};
+
 struct UnaryExpAST : ExpAST {
-    struct Container {
+    struct ExpContainer {
         Operator unary_op;
         ExpObject unary_exp;
     };
+    struct FuncCallContainer {
+        std::string func_name;
+        std::unique_ptr<FuncRParamsAST> params;
+    };
     explicit UnaryExpAST(int line, int column);
     explicit UnaryExpAST(ExpObject&& obj);
-    explicit UnaryExpAST(Container&& cont);
+    explicit UnaryExpAST(int line, int column, ExpContainer&& cont);
+    explicit UnaryExpAST(int line, int column, FuncCallContainer&& cont);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
     auto isConstExpr() const -> bool override;
     auto calc() const -> int override;
 
 private:
-    std::variant<ExpObject, Container> content;
-};
-
-struct FuncFParamAST : BaseAST {
-    explicit FuncFParamAST(int line, int column);
-    auto toString() const -> std::string override;
-    auto toIR() const -> IrObject override;
-
-private:
-    std::vector<std::pair<ExpObject, std::string>> params;
-};
-
-struct FuncRParamAST : BaseAST {
-    explicit FuncRParamAST(int line, int column);
-    auto toString() const -> std::string override;
-    auto toIR() const -> IrObject override;
-
-private:
-    std::vector<ExpObject> params;
-};
-
-struct FuncCallAST : BaseAST {
-    std::string func_name;
-    AstObject params;
+    std::variant<ExpObject, ExpContainer, FuncCallContainer> content;
 };
 
 struct BinaryExpAST : ExpAST {
@@ -274,27 +296,33 @@ private:
 };
 
 struct FuncDefAST : ScopeAST {
-    explicit FuncDefAST(int line, int column, AstObject&& type, const std::string& ident,
-                        AstObject&& block);
+    explicit FuncDefAST(int line, int column, FuncTypeAST* type, const std::string& ident,
+                        FuncFParamsAST* params, AstObject&& block);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
     auto name() const -> std::string;
+    auto getIrType() const -> std::unique_ptr<BaseIR::Type>;
 
 private:
-    AstObject func_type;
+    std::unique_ptr<FuncTypeAST> func_type;
     std::string ident;
+    std::unique_ptr<FuncFParamsAST> params;
     AstObject block;
 };
 
-struct CompUnitAST : BaseAST {
+struct CompUnitAST : ScopeAST {
     explicit CompUnitAST(int line, int column);
     auto toString() const -> std::string override;
     auto toIR() const -> IrObject override;
     void add(FuncDefAST* func_def);
+    auto hasFunc(const std::string&) const -> bool;
+    auto getFunc(const std::string&) const -> FuncDefAST*;
 
 private:
     std::vector<AstObject> func_defs;
+    std::vector<AstObject> var_defs;
     std::map<std::string, FuncDefAST*> func_table;
+    std::map<std::string, BaseAST*> var_table;
 };
 
 template <typename T> T* find_ancestor(const BaseAST* cur) {
