@@ -1,37 +1,146 @@
 #include "ir/ir.h"
 #include "util.hpp"
 
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
 
 const int MAXN = 65536;
 
-struct BaseIR::BfContext {
-    struct Tape {
-        unsigned current_pos{0};
-        bool cur_used[MAXN]{0};
-        bool non_zero[MAXN]{0};
+struct Tape {
+    struct Var;
+    unsigned current_pos{0};
+    bool cur_used[MAXN]{0};
+    bool non_zero[MAXN]{0};
+    std::string record_str;
+    unsigned recurse_counter{0};
+    struct RecurseGuard {
+        Tape* tape;
+        RecurseGuard(Tape* t) : tape(t) {
+            ++tape->recurse_counter;
+        }
+        ~RecurseGuard() {
+            --tape->recurse_counter;
+        }
     };
+    void record(const std::string& str);
+    void free(unsigned pos, unsigned size = 1);
+    void clear(unsigned pos, unsigned size = 1);
+    auto alloc() -> Var;
+    auto alloc(unsigned pos) -> Var;
+    void jump(unsigned pos);
+    void move(Var src, Var& dest, int sign = 1);
+    void copy(Var& src, std::vector<std::reference_wrapper<Var>> dest, int sign = 1);
+    auto clone(Var& src) -> Var;
+    void inc(Var& pos, int val);
+    void add(Var x, Var y, Var& ret);
+    void sub(Var x, Var y, Var& ret);
+    void mul(Var x, Var y, Var& ret);
+    void logicOr(Var x, Var y, Var& ret);
+    void logicNot(Var x, Var& ret);
+    void equal(Var x, Var y, Var& ret);
+    void neq(Var x, Var y, Var& ret);
+    void construct_int(Var& pos, int value);
+    auto create_int(int value) -> Var;
+    void exec(Var pos, std::function<void()> func);
+    void cond(Var pos, std::function<void()> func);
+    void cond(Var pos, std::function<void()> then_func, std::function<void()> else_func);
+    struct Var {
+        Tape* tape;
+        unsigned pos;
+        bool available{false};
+        std::string debugInfo() const {
+            return serializeClass("Var", tape, pos, available);
+        }
+        Var() : tape(nullptr), pos(0) {}
+        Var(Tape* tape) : tape(tape), available(true) {
+            for (unsigned i = 0; i < MAXN; i++) {
+                if (tape->cur_used[i]) continue;
+                pos = i;
+                break;
+            }
+            tape->cur_used[pos] = true, tape->clear(pos);
+            tape->non_zero[pos] = true;
+        }
+        Var(Tape* tape, int preset_pos) : tape(tape), pos(preset_pos), available(true) {
+            if (tape->cur_used[pos]) runtimeError("double allocated cell #{}", pos);
+            tape->cur_used[pos] = true, tape->clear(pos);
+            tape->non_zero[pos] = true;
+            tape->clear(pos);
+            debugLog("inplace allocated at {}", pos);
+        }
+        Var(Var&& v) : tape(v.tape), pos(v.pos), available(v.available) {
+            debugLog("move construct {} => {}", (void*)&v, (void*)this);
+            v.available = false;
+            if (!available) runtimeError("constructed by unavailable variable");
+        }
+        Var(const Var& v) = delete;
+        Var& operator=(Var&& v) {
+            debugLog("move assign {} => {}", (void*)&v, (void*)this);
+            this->~Var();
+            if (this != &v) {
+                tape = v.tape, pos = v.pos, available = v.available;
+                v.available = false;
+            }
+            if (!available) runtimeError("assigned by unavailable variable");
+            return *this;
+        }
+        Var& operator=(const Var& v) = delete;
+        operator unsigned() const {
+            if (!available) runtimeError("get value from unavailable variable");
+            return pos;
+        }
+        std::string toString() const {
+            return std::to_string(pos);
+        }
+        ~Var() {
+            debugLog("destruct {}", (void*)this);
+            if (available) {
+                tape->free(pos);
+            }
+            available = false;
+        }
+        Var& operator++();
+        Var& operator--();
+        friend Var operator+(Var lhs, Var rhs);
+        friend Var operator-(Var lhs, Var rhs);
+        friend Var operator*(Var lhs, Var rhs);
+        friend Var operator||(Var lhs, Var rhs);
+        friend Var operator!(Var exp);
+        friend Var operator==(Var lhs, Var rhs);
+        friend Var operator!=(Var lhs, Var rhs);
+    };
+};
+
+using Var = Tape::Var;
+
+struct BaseIR::BfContext {
+    BfContext() = default;
+    BfContext(const BfContext&) = delete;
     Tape tape;
-    std::map<std::string, unsigned> symbol_table;
-    unsigned pc, global_ret;
+    std::map<std::string, unsigned> symbol_table_legacy;
+    std::map<std::string, Var> symbol_table;
+
+    unsigned pc_legacy, global_ret_legacy;
+    unsigned ret_legacy;
+    Var pc, global_ret;
+    std::variant<int, Var> ret;
+
     std::map<std::string, unsigned> labels;
     int getBlockPC(const std::string& block_name) {
         if (!labels.contains(block_name)) {
-            int pc = labels.size() + 1;  // reserve pc=0 for skip
+            int pc = labels.size() + 1;  // reserve pc @0 for exit
             debugLog("alloc pc @{} for block `{}`", pc, block_name.length() ? block_name : "entry");
             labels[block_name] = pc;
         }
         return labels[block_name];
     }
-    std::function<std::string()> label_end = []() { return ""; };
-    unsigned ret;
+    std::function<std::string()> label_end_legacy = []() { return ""; };
+    std::function<void()> label_end = [] {};
 };
 
-using Tape = BaseIR::BfContext::Tape;
-
-static std::string repeat(std::string str, unsigned times) {
+std::string repeat(std::string str, unsigned times) {
     std::string ret_str;
     for (unsigned i = 0; i < times; i++) ret_str += str;
     return ret_str;
@@ -54,258 +163,182 @@ std::string bfCompress(std::string s) {
     return ret;
 }
 
-static void bfFree(Tape& tape, unsigned pos, unsigned size = 1) {
+void Tape::record(const std::string& str) {
+    record_str += addIndent(str, recurse_counter);
+}
+
+void Tape::free(unsigned pos, unsigned size) {
     for (unsigned i = 0; i < size; i++) {
-        // assert(tape.cur_used[pos + i] && "double free!");
-        if (!tape.cur_used[pos + i]) debugLog("warning: double freed cell #{}", pos + i);
-        tape.cur_used[pos + i] = false;
+        if (!cur_used[pos + i]) debugLog("warning: double freed cell #{}", pos + i);
+        cur_used[pos + i] = false;
     }
 }
 
-/// @brief move cell pointer to the given position
-static std::string bfJump(Tape& tape, unsigned pos) {
-    if (pos == tape.current_pos) return "";
-    const std::string comment = std::format("; goto #{}\n", pos);
-    std::string str;
-    if (tape.current_pos < pos)
-        str = repeat(">", pos - tape.current_pos);
-    else if (tape.current_pos > pos)
-        str = repeat("<", tape.current_pos - pos);
-    tape.current_pos = pos;
-    return str + "  \t" + comment;
+void Tape::jump(unsigned pos) {
+    if (pos == current_pos) return;
+    if (current_pos < pos) {
+        record(repeat(">", pos - current_pos));
+    } else {
+        record(repeat("<", current_pos - pos));
+    }
+    current_pos = pos;
 }
 
-/// @brief do {func} for @{pos} times, take the ownership of cell ${pos}
-static std::string bfFor(Tape& tape, unsigned pos, std::function<std::string()> func,
-                         bool free_after_move = true) {
-    assert(tape.cur_used[pos] && "bad access");
-    const std::string comment = std::format("; do for ${} times\n", pos);
-    std::string str;
-    str += bfJump(tape, pos);
-    str += "[\n";
-    str += addIndent(func());
-    str += bfJump(tape, pos) + "-]\n";
-    if (free_after_move) bfFree(tape, pos);
-    // tape.non_zero[pos] = false;
-    return comment + addIndent(str);
+void Tape::exec(Var pos, std::function<void()> func) {
+    assert(cur_used[pos] && "bad access");
+    debugLog("exec get {}, content: {}", (void*)&pos, pos.debugInfo());
+    record(std::format("; do for ${} times\n", pos));
+    RecurseGuard _(this);
+    jump(pos), record("[\n");
+    func();
+    jump(pos), record("-]\n");
+    debugLog("content: {}", pos.debugInfo());
 }
 
-/// @brief clear cell ${pos:size}
-static std::string bfClear(Tape& tape, unsigned pos, unsigned size = 1) {
-    const std::string comment = std::format("; clear(#{} {})\n", pos, size);
-    std::string str;
+void Tape::clear(unsigned pos, unsigned size) {
+    record(std::format("; clear(#{} {})\n", pos, size));
+    RecurseGuard _(this);
     for (unsigned i = 0; i < size; i++) {
-        if (!tape.non_zero[pos + i]) continue;
-        assert(tape.cur_used[pos + i] && "bad access"), str += bfJump(tape, pos + i) + "[-]\n";
+        if (!non_zero[pos + i]) continue;
+        assert(cur_used[pos + i] && "bad access");
+        jump(pos + i);
+        record("[-]\n");
     }
-    if (str.length())
-        return comment + addIndent(str);
-    else
-        return "";
 }
 
-/// @brief allocate a segment cell, length: {size}, returned first cell: ${pos}
-static std::string bfAlloc(Tape& tape, unsigned& pos, unsigned size = 1) {
-    pos = tape.current_pos;
-    while (1) {
-        if (std::all_of(tape.cur_used + pos, tape.cur_used + pos + size,
-                        [](bool used) { return !used; })) {
-            break;
-        }
-        pos++;
-    }
-    for (unsigned i = 0; i < size; i++) tape.cur_used[pos + i] = true;
-    std::string str = bfClear(tape, pos, size);
-    for (unsigned i = 0; i < size; i++) tape.non_zero[pos + i] = true;
-    // return std::format("; alloc #{} ~ #{}\n", pos, pos + size - 1) + addIndent(str);
-    return str;
+Var Tape::alloc() {
+    return Var(this);
 }
 
-static std::string bfIf(Tape& tape, unsigned pos, std::function<std::string()> func) {
-    assert(tape.cur_used[pos] && "bad access");
-    const std::string comment = std::format("; if ${}\n", pos);
-    std::string str;
-    str += bfJump(tape, pos);
-    str += "[[-]\n";
-    str += addIndent(func());
-    str += bfJump(tape, pos);
-    str += "]\n";
-    bfFree(tape, pos);
-    return comment + addIndent(str);
+Var Tape::alloc(unsigned pos) {
+    return Var(this, pos);
 }
 
-static std::string bfIfElse(Tape& tape, unsigned pos, std::function<std::string()> then_func,
-                            std::function<std::string()> else_func) {
-    assert(tape.cur_used[pos] && "bad access");
-    const std::string comment1 = std::format("; if ${}\n", pos), comment2 = std::format("; else\n");
-    std::string str1, str2;
-    unsigned tmp;
-    str1 += bfAlloc(tape, tmp);
-    str1 += bfJump(tape, tmp) + "+\n";
-    str1 += bfJump(tape, pos);
-    str1 += "[\n[-]\n";
-    str1 += bfJump(tape, tmp) + "-\n";
-    str1 += addIndent(then_func());
-    str1 += bfJump(tape, pos);
-    str1 += "]\n";
-    str2 += bfJump(tape, tmp);
-    str2 += "[-\n";
-    str2 += addIndent(else_func());
-    str2 += bfJump(tape, tmp);
-    str2 += "]\n";
-    bfFree(tape, tmp);
-    bfFree(tape, pos);
-    return comment1 + addIndent(str1) + comment2 + addIndent(str2);
+void Tape::cond(Var pos, std::function<void()> func) {
+    assert(cur_used[pos] && "bad access");
+    record(std::format("; if ${}\n", pos));
+    RecurseGuard _(this);
+    jump(pos);
+    record("[[-]\n");
+    func();
+    jump(pos);
+    record("]\n");
 }
 
-/// @brief move cell from src to dest, take the ownership of ${src}
-static std::string bfMove(Tape& tape, unsigned src, unsigned dest, int sign = 1,
-                          bool free_after_move = true) {
-    assert(tape.cur_used[src] && "bad access");
-    assert(tape.cur_used[dest] && "bad access");
-    if (src == dest) return "";
-    const std::string comment = std::format("; move(#{}) to #{}\n", src, dest);
-    std::string str, ch = sign > 0 ? "+" : "-";
-    str += bfFor(tape, src, [&] { return bfJump(tape, dest) + ch + "\n"; }, free_after_move);
-    return comment + addIndent(str);
+void Tape::cond(Var pos, std::function<void()> then_func, std::function<void()> else_func) {
+    assert(cur_used[pos] && "bad access");
+    record(std::format("; if_else ${}\n", pos));
+    RecurseGuard _(this);
+    Var tmp = alloc();
+    ++tmp;
+    jump(pos), record("[\n[-]\n");
+    --tmp, then_func();
+    jump(pos), record("]");
+    jump(tmp), record("[-\n");
+    else_func();
+    jump(tmp), record("]");
 }
 
-static std::string bfCopy(Tape& tape, unsigned src, std::vector<unsigned> dest, int sign) {
+void Tape::move(Var src, Var& dest, int sign) {
+    debugLog("tape.move {} => {}", src, dest);
+    assert(cur_used[src]);
+    assert(cur_used[dest]);
+    if (src.pos == dest.pos) return;
+    record(std::format("; move(#{}) to #{}\n", src, dest));
+    RecurseGuard _(this);
+    std::string op = sign > 0 ? "+" : "-";
+    exec(std::move(src), [&] { jump(dest), record(op); });
+}
+
+void Tape::copy(Var& src, std::vector<std::reference_wrapper<Var>> dest, int sign) {
     std::string comment = std::format("; copy(#{}) to ", src);
     for (auto d : dest) {
-        comment += std::format("#{} ", d);
-        assert(tape.cur_used[d] && "bad access");
+        comment += std::format("#{} ", d.get());
+        assert(cur_used[d.get()] && "bad access");
     }
-    comment += "\n";
-    std::string str, ch = sign == 1 ? "+" : "-";
-    unsigned tmp;
-    str += bfAlloc(tape, tmp);
+    record(comment);
+    RecurseGuard _(this);
+    Var tmp = alloc();
     dest.push_back(tmp);
-    str += bfFor(tape, src, [&tape, &dest, ch, src] {
-        std::string s;
+    std::string ch = sign == 1 ? "+" : "-";
+    debugLog("exec start");
+    unsigned pos = src.pos;
+    exec(std::move(src), [this, &dest, ch] {
         for (auto d : dest) {
-            s += bfJump(tape, d);
-            s += ch + "\n";
+            jump(d.get()), record(ch);
         }
-        s += bfJump(tape, src);
-        return s;
     });
-    tape.cur_used[src] = true;
-    str += bfMove(tape, tmp, src);
-    return comment + addIndent(str);
+    debugLog("exec end, src: {}, content: {}", (void*)&src, src.debugInfo());
+    assert(!src.available);
+    src = alloc(pos);
+    debugLog("inplace allocated {}, pos {}", src.pos, pos);
+    move(std::move(tmp), src);
 }
 
-static std::string bfCopy(Tape& tape, unsigned src, unsigned dest, int sign = 1, int len = 1) {
-    std::vector<unsigned> dests(len);
-    for (int i = 0; i < len; i++) {
-        dests[i] = dest + i;
-    }
-    return bfCopy(tape, src, dests, sign);
+Var Tape::clone(Var& src) {
+    Var pos = alloc();
+    copy(src, {pos});
+    return pos;
 }
 
-static std::string bfInc(Tape& tape, int pos, int val) {
-    assert(tape.cur_used[pos] && "bad access");
-    std::string str, ch, name;
+void Tape::inc(Var& pos, int val) {
+    assert(cur_used[pos] && "bad access");
+    std::string ch, name;
     if (val > 0)
         ch = "+", name = "inc";
     else
         ch = "-", val = -val, name = "dec";
-    const std::string comment = std::format("; {}(#{} by {})\n", name, pos, val);
-    str += bfJump(tape, pos);
-    str += repeat(ch, val);
-    return comment + addIndent(str);
+    record(std::format("; {}(#{} by {})\n", name, pos, val));
+    RecurseGuard _(this);
+    jump(pos);
+    record(repeat(ch, val));
 }
 
-static std::string bfAdd(Tape& tape, unsigned x, unsigned y, unsigned ret) {
-    assert(tape.cur_used[x] && tape.cur_used[y] && tape.cur_used[ret] && "bad access");
-    const std::string comment = std::format("; add(${} ${}) to #{}\n", x, y, ret);
-    std::string str;
-    str += bfMove(tape, x, ret, 1);
-    str += bfMove(tape, y, ret, 1);
-    return comment + addIndent(str);
+void Tape::add(Var x, Var y, Var& ret) {
+    assert(cur_used[x] && cur_used[y] && cur_used[ret] && "bad access");
+    record(std::format("; add(${} ${}) to #{}\n", x, y, ret));
+    RecurseGuard _(this);
+    move(std::move(x), ret);
+    move(std::move(y), ret);
 }
 
-static std::string bfSub(Tape& tape, unsigned x, unsigned y, unsigned ret) {
-    assert(tape.cur_used[x] && tape.cur_used[y] && tape.cur_used[ret] && "bad access");
-    const std::string comment = std::format("; sub(${} ${}) to #{}\n", x, y, ret);
-    std::string str = bfMove(tape, x, ret, 1);
-    str += bfMove(tape, y, ret, -1);
-    return comment + addIndent(str);
+void Tape::sub(Var x, Var y, Var& ret) {
+    assert(cur_used[x] && cur_used[y] && cur_used[ret] && "bad access");
+    record(std::format("; sub(${} ${}) to #{}\n", x, y, ret));
+    RecurseGuard _(this);
+    move(std::move(x), ret);
+    move(std::move(y), ret, -1);
 }
 
-static std::string bfMul(Tape& tape, unsigned x, unsigned y, unsigned ret) {
-    assert(tape.cur_used[x] && tape.cur_used[y] && tape.cur_used[ret] && "bad access");
-    const std::string comment = std::format("; mul(${} ${}) to #{}\n", x, y, ret);
-    std::string str;
-    str += bfFor(tape, x, [&] { return bfCopy(tape, y, ret, 1); });
-    bfFree(tape, y);
-    return comment + addIndent(str);
+void Tape::mul(Var x, Var y, Var& ret) {
+    assert(cur_used[x] && cur_used[y] && cur_used[ret] && "bad access");
+    record(std::format("; mul(${} ${}) to #{}\n", x, y, ret));
+    RecurseGuard _(this);
+    exec(std::move(x), [this, &y, &ret] { copy(y, {ret}); });
 }
 
-static std::string bfDiv(Tape& tape, unsigned x, unsigned y, unsigned ret) {
-    assert(tape.cur_used[x] && tape.cur_used[y] && tape.cur_used[ret] && "bad access");
-    const std::string comment = std::format("; div(${} ${}) to #{}\n", x, y, ret);
-    debugLog("{}", comment);
-    std::string str;
-    unsigned tmp;
-    auto j = [&tape](unsigned p) { return bfJump(tape, p); };
-    auto inc = [&tape](unsigned p) { return bfInc(tape, p, 1); };
-    auto dec = [&tape](unsigned p) { return bfInc(tape, p, -1); };
-    str += bfAlloc(tape, tmp, 3);
-    unsigned tmp0 = tmp + 1, tmp1 = tmp, x0 = tmp + 2;
-    /*
-    x[
-     temp1+[
-      y[x-[temp1+x0]temp1-temp0+y-]
-      temp0[y+temp0-]q+temp1
-     ]
-    ]
-    x[y[temp0+x+y-]temp0[y+temp0-]q-x0]
-    */
-    str += j(x) + "[\n" + inc(tmp1) + "[\n";
-    str += j(y) + "[\n" + dec(x) + "[\n" + inc(tmp1) + j(x0) + "]\n";
-    str += dec(tmp1) + inc(tmp0) + dec(y) + "]\n";
-    str += j(tmp0) + "[\n" + inc(y) + dec(tmp0) + "]\n";
-    str += inc(ret) + j(tmp1) + "]]\n";
-    str += j(x) + "[\n" + j(y) + "[\n" + inc(tmp0) + inc(x) + dec(y) + "]\n";
-    str += j(tmp0) + "[\n" + inc(y) + dec(tmp0) + "]\n" + dec(ret) + j(x0) + "]";
-    bfFree(tape, tmp, 3);
-    bfFree(tape, x), bfFree(tape, y);
-    return comment + addIndent(str);
+void Tape::logicOr(Var x, Var y, Var& ret) {
+    assert(cur_used[x] && cur_used[y] && cur_used[ret] && "bad access");
+    record(std::format("; or(${} ${}) to #{}\n", x, y, ret));
+    RecurseGuard _(this);
+    jump(x), record("[-");
+    clear(y), jump(y), record("+");
+    jump(x), record("]");
+    move(std::move(y), ret);
 }
 
-// static std::string bfBool(Tape& tape, unsigned x, unsigned ret) {
-//     assert(tape.used[x] && tape.used[ret] && "bad access");
-//     const std::string comment = std::format("; bool(${}) to #{}\n", x, ret);
-//     std::string str;
-//     str += bfJump(tape, x);
-//     str += "[\n" + bfClear(tape, x) + bfJump(tape, ret) + "+\n" + bfJump(tape, x) + "]\n";
-//     return comment + addIndent(str);
-// }
-
-static std::string bfOr(Tape& tape, unsigned x, unsigned y, unsigned ret) {
-    assert(tape.cur_used[x] && tape.cur_used[y] && tape.cur_used[ret] && "bad access");
-    const std::string comment = std::format("; or(${} ${}) to #{}\n", x, y, ret);
-    std::string str;
-    str += bfJump(tape, x);
-    str += "[-\n" + bfClear(tape, y) + bfJump(tape, y) + "+\n" + bfJump(tape, x) + "]\n";
-    str += bfMove(tape, y, ret);
-    return comment + addIndent(str);
+void Tape::equal(Var x, Var y, Var& ret) {
+    assert(cur_used[x] && cur_used[y] && cur_used[ret] && "bad access");
+    record(std::format("; eq(${} ${}) to #{}\n", x, y, ret));
+    RecurseGuard _(this);
+    jump(x), record("[-");
+    --y, jump(x), record("]+"), jump(y);
+    record("["), --x, clear(y), record("]");
+    move(std::move(x), ret);
 }
 
-static std::string bfEqual(Tape& tape, unsigned x, unsigned y, unsigned ret) {
-    assert(tape.cur_used[x] && tape.cur_used[y] && tape.cur_used[ret] && "bad access");
-    const std::string comment = std::format("; eq(${} ${}) to #{}\n", x, y, ret);
-    std::string str;
-    str += bfJump(tape, x);
-    str += "[-\n" + bfJump(tape, y) + "-\n" + bfJump(tape, x) + "]+\n" + bfJump(tape, y);
-    str += "[\n" + bfJump(tape, x) + "-\n" + bfClear(tape, y) + "]\n";
-    str += bfMove(tape, x, ret);
-    bfFree(tape, y);
-    return comment + addIndent(str);
-}
-
-static std::string bfBitNot(Tape& tape, unsigned x, unsigned ret) {
+/*
+std::string bfBitNot(Tape& tape, unsigned x, unsigned ret) {
     assert(tape.cur_used[x] && tape.cur_used[ret] && "bad access");
     const std::string comment = std::format("; bit not(${}) to #{}\n", x, ret);
     unsigned tmp;
@@ -317,162 +350,178 @@ static std::string bfBitNot(Tape& tape, unsigned x, unsigned ret) {
     bfFree(tape, tmp);
     return comment + addIndent(str);
 }
+*/
 
-static std::string bfLogicNot(Tape& tape, unsigned x, unsigned ret) {
-    assert(tape.cur_used[x] && tape.cur_used[ret] && "bad access");
-    const std::string comment = std::format("; not(${}) to #{}\n", x, ret);
-    std::string str;
-    str += bfInc(tape, ret, 1);
-    str += bfIf(tape, x, [&] { return bfInc(tape, ret, -1); });
-    return comment + addIndent(str);
+void Tape::logicNot(Var x, Var& ret) {
+    assert(cur_used[x] && cur_used[ret] && "bad access");
+    record(std::format("; not(${}) to #{}\n", x, ret));
+    RecurseGuard _(this);
+    ++ret, cond(std::move(x), [&] { --ret; });
 }
 
-static std::string bfNeq(Tape& tape, unsigned x, unsigned y, unsigned ret) {
-    assert(tape.cur_used[x] && tape.cur_used[y] && tape.cur_used[ret] && "bad access");
-    const std::string comment = std::format("; neq(${} ${}) to #{}\n", x, y, ret);
-    std::string str;
-    unsigned tmp;
-    str += bfAlloc(tape, tmp);
-    str += bfEqual(tape, x, y, tmp);
-    str += bfLogicNot(tape, tmp, ret);
-    return comment + addIndent(str);
+void Tape::neq(Var x, Var y, Var& ret) {
+    assert(cur_used[x] && cur_used[y] && cur_used[ret] && "bad access");
+    record(std::format("; neq(${} ${}) to #{}\n", x, y, ret));
+    RecurseGuard _(this);
+    Var tmp = alloc();
+    equal(std::move(x), std::move(y), tmp);
+    logicNot(std::move(tmp), ret);
 }
 
-static std::string bfInteger(Tape& tape, unsigned& pos, int value) {
-    std::string comment;
-    std::string str;
-    if (!value || value == 1 || value == -1) {
-        str += bfAlloc(tape, pos);
-        comment = std::format("; int({}) to #{}\n", value, pos);
-        if (value) str += bfJump(tape, pos) + (value > 0 ? "+" : "-");
-    } else {
-        str += bfAlloc(tape, pos, 2);
-        comment = std::format("; int({}) to #{}\n", (uint8_t)value, pos);
-        const std::string ch = value > 0 ? "+" : "-";
-        value = value > 0 ? value : -value;
-        int factor1, factor2;
-        for (int i = 1; i * i <= value; i++) {
-            if (value % i == 0) {
-                factor1 = i;
-                factor2 = value / i;
-            }
-        }
-        str += bfJump(tape, pos + 1) + repeat(ch, factor1) + "\n";
-        str +=
-            bfFor(tape, pos + 1, [&]() { return bfJump(tape, pos) + repeat(ch, factor2) + "\n"; });
-    }
-    return comment + addIndent(str);
+Var& Var::operator--() {
+    tape->inc(*this, -1);
+    return *this;
 }
 
-using BfBinaryFunction = std::function<std::string(Tape&, unsigned, unsigned, unsigned)>;
+Var& Var::operator++() {
+    tape->inc(*this, 1);
+    return *this;
+}
 
-static const std::map<Operator, BfBinaryFunction> bf_function_map = {
-    {Operator::add, bfAdd},  {Operator::sub, bfSub}, {Operator::mul, bfMul}, {Operator::bor, bfOr},
-    {Operator::eq, bfEqual}, {Operator::neq, bfNeq}, {Operator::div, bfDiv}};
+Var operator+(Var lhs, Var rhs) {
+    Var ret = lhs.tape->alloc();
+    lhs.tape->add(std::move(lhs), std::move(rhs), ret);
+    return ret;
+}
 
-static BfBinaryFunction getBfFunction(Operator oper) {
-    for (const auto& [op, func] : bf_function_map) {
-        if (oper == op) {
-            return func;
-        }
-    }
-    std::vector<Operator> ops;
-    for (const auto& [op, _] : bf_function_map) {
-        ops.push_back(op);
-    }
-    runtimeError("unimplemented operator {}! (now supports {})", toIrOperatorName(oper), ops);
+Var operator-(Var lhs, Var rhs) {
+    Var ret = lhs.tape->alloc();
+    lhs.tape->sub(std::move(lhs), std::move(rhs), ret);
+    return ret;
+}
+
+Var operator*(Var lhs, Var rhs) {
+    Var ret = lhs.tape->alloc();
+    lhs.tape->mul(std::move(lhs), std::move(rhs), ret);
+    return ret;
+}
+
+Var operator!=(Var lhs, Var rhs) {
+    Var ret = lhs.tape->alloc();
+    lhs.tape->neq(std::move(lhs), std::move(rhs), ret);
+    return ret;
+}
+
+Var operator==(Var lhs, Var rhs) {
+    Var ret = lhs.tape->alloc();
+    lhs.tape->equal(std::move(lhs), std::move(rhs), ret);
+    return ret;
+}
+
+Var operator||(Var lhs, Var rhs) {
+    Var ret = lhs.tape->alloc();
+    lhs.tape->logicOr(std::move(lhs), std::move(rhs), ret);
+    return ret;
+}
+
+void Tape::construct_int(Var& pos, int value) {
+    record(std::format("; int({}) to #{}\n", (uint8_t)value, pos));
+    RecurseGuard _(this);
+    clear(pos), jump(pos);
+    record(repeat(value > 0 ? "+" : "-", std::abs(value)));
+}
+
+Var Tape::create_int(int value) {
+    Var pos = alloc();
+    construct_int(pos, value);
+    return pos;
 }
 
 std::string ValueIR::printBf(bool compress, std::shared_ptr<BfContext> context) const {
     std::string str, comment;
     assert(context != nullptr);
     auto& ctx = *context;
+    auto& tape = ctx.tape;
+    std::vector<decltype(BfContext::ret)> ret;
+    for (auto& param : params) {
+        param->printBf(compress, context);
+        ret.push_back(std::move(ctx.ret));
+    }
+    auto get_var = [&ret](size_t index) { return std::move(std::get<Var>(ret[index])); };
+    auto get_int = [&ret](size_t index) { return std::get<int>(ret[index]); };
     switch (inst) {
         case Inst::String: ctx.ret = ctx.getBlockPC(content); break;
-        case Inst::Return:
-            str += params[0]->printBf(compress, context);
-            comment = std::format("; return ${}\n", ctx.ret);
-            str += bfClear(ctx.tape, ctx.global_ret);
-            str += bfMove(ctx.tape, ctx.ret, ctx.global_ret);
-            str += bfClear(ctx.tape, ctx.pc);
+        case Inst::Return: {
+            if (ret.size()) {
+                Var pos = get_var(0);
+                comment = std::format("; return ${}\n", pos);
+                tape.clear(ctx.global_ret);
+                tape.move(std::move(pos), ctx.global_ret);
+                tape.clear(ctx.pc);
+            } else {
+                comment = std::format("; return\n");
+                tape.clear(ctx.pc);
+            }
             break;
-        case Inst::Integer: str += bfInteger(ctx.tape, ctx.ret, std::stoi(content)); break;
+        }
+        case Inst::Integer: {
+            ctx.ret = tape.create_int(std::stoi(content));
+            break;
+        }
         case Inst::Binary: {
-            str += params[0]->printBf(compress, context);
-            const unsigned op1 = ctx.ret;
-            str += params[1]->printBf(compress, context);
-            const unsigned op2 = ctx.ret;
-            str += bfAlloc(ctx.tape, ctx.ret);
-            str += getBfFunction(toOperator(content))(ctx.tape, op1, op2, ctx.ret);
+            switch (toOperator(content)) {
+                case Operator::add: ctx.ret = get_var(0) + get_var(1); break;
+                case Operator::sub: ctx.ret = get_var(0) - get_var(1); break;
+                case Operator::mul: ctx.ret = get_var(0) * get_var(1); break;
+                case Operator::bor: ctx.ret = get_var(0) || get_var(1); break;
+                case Operator::eq: ctx.ret = get_var(0) == get_var(1); break;
+                case Operator::neq: ctx.ret = get_var(0) != get_var(1); break;
+                default: runtimeError("unimplemented operator `{}`", content);
+            }
             break;
         }
         case Inst::Alloc:
             if (!ctx.symbol_table.contains(content))
                 runtimeError("unallocated variable {}", content);
-            // str += bfAlloc(ctx.tape, ctx.ret);
-            // str += std::format("; alloc #{} for {}\n", ctx.ret, content);
-            // debugLog("alloc #{} for variable {}", ctx.ret, content);
-            // ctx.symbol_table[content] = ctx.ret;
             break;
         case Inst::Store: {
-            str += params[0]->printBf(compress, context);
-            const unsigned exp_pos = ctx.ret;
-            const unsigned var_pos = ctx.symbol_table[content];
-            str += bfClear(ctx.tape, var_pos);
-            str += bfMove(ctx.tape, exp_pos, var_pos);
+            Var exp = get_var(0), &var = ctx.symbol_table[content];
+            tape.clear(var);
+            tape.move(std::move(exp), var);
             break;
         }
-        case Inst::Load:
-            str += bfAlloc(ctx.tape, ctx.ret);
-            str += std::format("; load {} to #{}\n", content, ctx.ret);
-            str += bfCopy(ctx.tape, ctx.symbol_table[content], ctx.ret);
+        case Inst::Load: {
+            Var pos = tape.alloc();
+            tape.record(std::format("; load {} to #{}\n", content, pos));
+            tape.copy(ctx.symbol_table[content], {pos});
+            ctx.ret = std::move(pos);
             break;
+        }
         case Inst::Jump: {
             unsigned target = ctx.getBlockPC(content);
-            comment = std::format("; jump {}(pc: {}):\n", content, target);
-            str += bfJump(ctx.tape, ctx.pc);
-            str += "[-]" + repeat("+", target) + "\n";
+            tape.record(std::format("; jump {}({}):", content, target));
+            tape.construct_int(ctx.pc, target);
             break;
         }
         case Inst::Branch: {
-            str += params[0]->printBf(compress, context);
-            unsigned exp = ctx.ret;
-            params[1]->printBf(compress, context);
-            unsigned block_pc1 = ctx.ret;
-            params[2]->printBf(compress, context);
-            unsigned block_pc2 = ctx.ret;
-            str += bfIfElse(
-                ctx.tape, exp,
-                [&] { return bfJump(ctx.tape, ctx.pc) + "[-]" + repeat("+", block_pc1) + "\n"; },
-                [&] { return bfJump(ctx.tape, ctx.pc) + "[-]" + repeat("+", block_pc2) + "\n"; });
+            Var exp = get_var(0);
+            unsigned block_pc1 = get_int(1), block_pc2 = get_int(2);
+            tape.record(std::format("; branch: ${} ? {} : {}", exp, block_pc1, block_pc2));
+            tape.cond(
+                std::move(exp),  //
+                [&] { tape.construct_int(ctx.pc, block_pc1); },
+                [&] { tape.construct_int(ctx.pc, block_pc2); });
             break;
         }
         case Inst::Label: {
-            str += ctx.label_end();
+            ctx.label_end();
             int pc = ctx.getBlockPC(content);
-            comment =
-                std::format("; block {}(pc: {}):\n", content.length() ? content : "entry", pc);
-            unsigned tmp, tmp2;
-            str += bfJump(ctx.tape, ctx.pc);
-            str += bfAlloc(ctx.tape, tmp, 2);
-            str += bfCopy(ctx.tape, ctx.pc, tmp);
-            str += bfInteger(ctx.tape, tmp2, pc);
-            str += bfEqual(ctx.tape, tmp, tmp2, tmp + 1);
-            str += bfJump(ctx.tape, tmp + 1);
-            str += "[-\n";
-            ctx.label_end = [tmp, this, context]() {
-                bfFree(context->tape, tmp + 1);
-                return std::format("; end block {}: jump to entry #{}\n",
-                                   this->content.length() ? this->content : "entry", tmp + 1) +
-                       bfJump(context->tape, tmp + 1) + "]\n";
+            tape.record(
+                std::format("; block {}(pc: {}):", content.length() ? content : "entry", pc));
+            auto tmp = std::make_shared<Var>(tape.alloc());
+            tape.equal(tape.clone(ctx.pc), tape.create_int(pc), *tmp);
+            tape.jump(*tmp), tape.record("[-");
+            ctx.label_end = [this, tmp, context]() {
+                context->tape.record(std::format("; end block {}: jump to entry #{}",
+                                                 this->content.length() ? this->content : "entry",
+                                                 *tmp));
+                context->tape.jump(*tmp), context->tape.record("]");
             };
             break;
         }
         default: runtimeError("unimplemented value type `{}`", inst); break;
     }
-    if (comment.length()) str = comment + addIndent(str);
-    if (inst != Inst::Label) return addIndent(str);
-    return str;
+    return "";  // string stored in context
 }
 
 std::string MultiValueIR::printBf(bool compress, std::shared_ptr<BfContext> context) const {
@@ -484,18 +533,12 @@ std::string MultiValueIR::printBf(bool compress, std::shared_ptr<BfContext> cont
 }
 
 std::string FunctionIR::printBf(bool compress, std::shared_ptr<BfContext> context) const {
-    std::string str;
     context = std::make_shared<BfContext>();
+    auto& tape = context->tape;
 
-    auto alloc = [&](const std::string& name) {
-        unsigned pos;
-        str += bfAlloc(context->tape, pos);
-        context->symbol_table[name] = pos;
-        debugLog("alloc cell #{} for variable `{}`", pos, name);
-    };
-    alloc("$RET"), alloc("$PC");
-    context->global_ret = context->symbol_table["$RET"];
-    context->pc = context->symbol_table["$PC"];
+    tape.record(std::format("; {}:", name));
+    context->global_ret = tape.alloc(), context->pc = tape.alloc();
+    debugLog("alloc cell #{} for RET, #{} for PC", context->global_ret, context->pc);
     std::function<void(BaseIR*)> traverse = [&](BaseIR* base) {
         if (MultiValueIR* multi = dynamic_cast<MultiValueIR*>(base)) {
             for (auto& value : multi->values) {
@@ -503,7 +546,7 @@ std::string FunctionIR::printBf(bool compress, std::shared_ptr<BfContext> contex
             }
         } else if (ValueIR* value = dynamic_cast<ValueIR*>(base)) {
             if (value->inst == Inst::Alloc) {
-                alloc(value->content);
+                context->symbol_table[value->content] = tape.alloc();
             }
             for (auto& param : value->params) {
                 traverse(param.get());
@@ -512,24 +555,23 @@ std::string FunctionIR::printBf(bool compress, std::shared_ptr<BfContext> contex
     };
     traverse(blocks.get());
 
-    str += bfInc(context->tape, context->pc, context->getBlockPC(""));
-    // str += bfInc(context->tape, context->global_ret, 3);
-    str += bfJump(context->tape, context->pc);
-    str += "[  \t; pc\n";
+    tape.inc(context->pc, context->getBlockPC(""));
+    tape.jump(context->pc), tape.record("[");
 
-    str += addIndent(blocks->printBf(compress, context));
-    str += addIndent(context->label_end());
+    blocks->printBf(compress, context);
+    context->label_end(),
+        context->label_end = [] {};  // reset for calling destructor of previous Var
 
-    str += bfJump(context->tape, context->pc);
-    str += "]  \t; pc\n";
-    str += bfJump(context->tape, context->global_ret);
+    tape.jump(context->pc), tape.record("]");
+    tape.jump(context->global_ret);
 
     std::vector<unsigned> pos;
     for (unsigned i = 0; i < MAXN; i++) {
+        if (i == context->global_ret.pos || i == context->pc.pos) continue;
         if (context->tape.cur_used[i]) {
             int flag = 1;
             for (auto& [name, p] : context->symbol_table) {
-                if (p == i) flag = 0;
+                if (p.pos == i) flag = 0;
             }
             if (flag) pos.push_back(i);
         }
@@ -538,7 +580,7 @@ std::string FunctionIR::printBf(bool compress, std::shared_ptr<BfContext> contex
         debugLog("warning: memory leaked at {}", pos);
     }
 
-    return "; " + name + "()\n" + addIndent(str);
+    return context->tape.record_str;
 }
 
 std::string ProgramIR::printBf(bool compress, std::shared_ptr<BfContext> context) const {
