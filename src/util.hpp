@@ -85,17 +85,22 @@ std::string serialize(const auto& val) {
         return toString(val);
     } else if constexpr (requires { val.toString(); }) {
         return val.toString();
-    } else if constexpr (requires { *val; } && requires { (void*)val; }) {
-        return std::format("{}", (void*)val);
-    } else if constexpr (requires { val->toString(); }) {
-        if (val)
-            return val->toString();
-        else
-            return "nullptr";
-    } else if constexpr (requires { std::format("{}", val); }) {
-        return std::format("{}", val);
+    } else if constexpr (requires { std::to_string(val); }) {
+        return std::to_string(val);
+    } else if constexpr (requires { std::ostringstream() << val; }) {
+        static std::ostringstream oss;
+        oss.str(""), oss.clear(), oss << val;
+        return oss.str();
     } else {
         static_assert(false, "can not convert to string");
+    }
+}
+
+template <typename T> std::string serialize(const std::unique_ptr<T>& ptr) {
+    if constexpr (requires { ptr->toString(); }) {
+        return ptr ? ptr->toString() : "nullptr";
+    } else {
+        return serialize(*ptr);
     }
 }
 
@@ -115,11 +120,7 @@ struct std::formatter<T> : std::formatter<std::string> {
 
 template <typename T> struct std::formatter<std::unique_ptr<T>> : std::formatter<std::string> {
     auto format(const std::unique_ptr<T>& ptr, std::format_context& ctx) const {
-        if (ptr) {
-            return std::formatter<std::string>::format(serialize(ptr), ctx);
-        } else {
-            return std::formatter<std::string>::format("nullptr", ctx);
-        }
+        return std::formatter<std::string>::format(serialize(ptr), ctx);
     }
 };
 
@@ -168,10 +169,10 @@ inline std::string getLocation(std::source_location location = std::source_locat
 #    define compileError(...) throw std::logic_error(std::format(addLocation(__VA_ARGS__)))
 #    define debugLog(...)     (void)0
 #else
-#    define runtimeError(...)                                                            \
+#    define runtimeError(...)                                                                \
         std::cerr << RED "[runtime error]\n" RESET << std::format(addLocation(__VA_ARGS__)), \
             assert(false)
-#    define compileError(...)                                                            \
+#    define compileError(...)                                                                \
         std::cerr << RED "[compile error]\n" RESET << std::format(addLocation(__VA_ARGS__)), \
             assert(false)
 #    define debugLog(...) std::cerr << tryCompressStr(std::format(addLocation(__VA_ARGS__)))
@@ -194,4 +195,4 @@ template <typename T> struct Match {
     }
 };
 
-template <typename T> Match(T&&) -> Match<T&&>; // make for compiler to reserve reference mark
+template <typename T> Match(T&&) -> Match<T&&>;  // make for compiler to reserve reference mark
