@@ -1,5 +1,6 @@
 #include "ast/ast.h"
 #include "ir/ir.h"
+#include "target/bf.h"
 #include "util.hpp"
 
 #include <cassert>
@@ -111,7 +112,7 @@ int main(int argc, const char* argv[]) {
                 try {
                     string bf;
                     if (opt.back() == 'z') {
-                        bf = ir->printBf(true);
+                        bf = bfCompress(ir->printBf());
                     } else {
                         bf = ir->printBf();
                     }

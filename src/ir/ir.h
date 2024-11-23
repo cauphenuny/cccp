@@ -97,8 +97,7 @@ struct BaseIR {
     virtual std::string toString() const = 0;
     virtual std::string print(std::shared_ptr<IrContext> ctx = nullptr) const = 0;
     virtual std::string printRiscV(std::shared_ptr<RiscvContext> ctx = nullptr) const = 0;
-    virtual std::string printBf(bool compress = false,
-                                std::shared_ptr<BfContext> ctx = nullptr) const = 0;
+    virtual std::string printBf(std::shared_ptr<BfContext> ctx = nullptr) const = 0;
     virtual int stackSize() const;
 };
 
@@ -137,7 +136,7 @@ struct ValueIR : public BaseIR {
     std::string toString() const override;
     std::string print(std::shared_ptr<IrContext> ctx) const override;
     std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
-    std::string printBf(bool compress, std::shared_ptr<BfContext> ctx) const override;
+    std::string printBf(std::shared_ptr<BfContext> ctx) const override;
     int stackSize() const override;
 
 private:
@@ -165,7 +164,7 @@ struct MultiValueIR : public BaseIR {
 
     std::string print(std::shared_ptr<IrContext> ctx) const override;
     std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
-    std::string printBf(bool compress, std::shared_ptr<BfContext> ctx) const override;
+    std::string printBf(std::shared_ptr<BfContext> ctx) const override;
 
     int stackSize() const override;
 };
@@ -186,7 +185,7 @@ struct FunctionIR : public BaseIR {
     std::string toString() const override;
     std::string print(std::shared_ptr<IrContext>) const override;
     std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
-    std::string printBf(bool compress, std::shared_ptr<BfContext> ctx) const override;
+    std::string printBf(std::shared_ptr<BfContext> ctx) const override;
     int stackSize() const override;
 };
 
@@ -196,5 +195,5 @@ struct ProgramIR : public BaseIR {
     std::string toString() const override;
     std::string print(std::shared_ptr<IrContext>) const override;
     std::string printRiscV(std::shared_ptr<RiscvContext> ctx) const override;
-    std::string printBf(bool compress, std::shared_ptr<BfContext> ctx) const override;
+    std::string printBf(std::shared_ptr<BfContext> ctx) const override;
 };
